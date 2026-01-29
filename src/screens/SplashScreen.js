@@ -1,7 +1,7 @@
-// src/screens/SplashScreen.js
 import React, { useEffect, useRef } from 'react'
 import { View, Image, StyleSheet, Dimensions, Animated, Easing } from 'react-native'
 import Svg, { Path, G } from 'react-native-svg'
+import { authService } from '../services/auth';
 
 const { width, height } = Dimensions.get('window')
 
@@ -93,13 +93,23 @@ export default function SplashScreen({ navigation } = {}) {
             useNativeDriver: true
         }).start()
 
-        const timer = setTimeout(() => {
-            if (navigation) {
-                navigation.replace('Home')
-            }
-        }, 13000)
+        const checkAuth = async () => {
+            // Wait for 2 seconds minimal splash time (or however long the animation needs to feel good)
+            await new Promise(resolve => setTimeout(resolve, 2000));
 
-        return () => clearTimeout(timer)
+            const token = await authService.getToken();
+
+            if (navigation) {
+                if (token) {
+                    navigation.replace('Home');
+                } else {
+                    navigation.replace('Login');
+                }
+            }
+        };
+
+        checkAuth();
+
     }, [navigation])
 
     // Entrance Transforms
