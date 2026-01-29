@@ -38,12 +38,36 @@ const publicApi = axios.create({
     },
 });
 
+// Debug Logging
+publicApi.interceptors.request.use(request => {
+    console.log('>>> Request:', request.method.toUpperCase(), request.url, request.params);
+    return request;
+});
+
+publicApi.interceptors.response.use(
+    response => {
+        console.log('<<< Response:', response.status, response.data);
+        return response;
+    },
+    error => {
+        console.log('<<< Error:', error.message);
+        if (error.response) {
+            console.log('    Status:', error.response.status);
+            console.log('    Data:', error.response.data);
+            console.log('    Headers:', error.response.headers);
+        } else if (error.request) {
+            console.log('    No response received', error.request);
+        }
+        return Promise.reject(error);
+    }
+);
+
 export const authApi = {
     // Backend endpoint: /api/user/google-login-success?email=...
     googleLoginSuccess: async (email) => {
         try {
             // Use publicApi here because we are logging in (we don't have a token yet or it's invalid)
-            const response = await publicApi.get(`/login`, {
+            const response = await publicApi.get(`/user/google-login-success`, {
                 params: { email }
             });
             return response.data;

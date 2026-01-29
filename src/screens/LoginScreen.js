@@ -85,6 +85,16 @@ export default function LoginScreen({ navigation }) {
         }
     };
 
+    const testConnection = async () => {
+        console.log("Testing connection...");
+        try {
+            // Try fetching something public like plans (from demo)
+            await authApi.googleLoginSuccess('test_ping@gmail.com');
+        } catch (e) {
+            console.log("Test Connection Error:", e);
+        }
+    };
+
     return (
         <View style={styles.container}>
             <Image
@@ -95,6 +105,10 @@ export default function LoginScreen({ navigation }) {
 
             <Text style={styles.title}>Welcome Back</Text>
             <Text style={styles.subtitle}>Sign in to continue</Text>
+
+            <TouchableOpacity onPress={testConnection} style={{ padding: 10, marginBottom: 20 }}>
+                <Text style={{ color: '#555' }}>Tap to Test Connection (Check Logs)</Text>
+            </TouchableOpacity>
 
             <View style={styles.spacer} />
 
