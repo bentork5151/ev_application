@@ -1,4 +1,4 @@
-package com.application
+package com.bentork.application
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "299158352008",
+    "project_id": "bentork-applications",
+    "storage_bucket": "bentork-applications.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:299158352008:android:f5bb56ad1ae586f64f2f3d",
+        "android_client_info": {
+          "package_name": "com.bentork.application"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "299158352008-tlj8559r701t245vtmqucuckoea8kq1a.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bentork.application",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "299158352008-kj7uan56kv9eaklkv5vhvnnj7o6om9n8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDCA8SMhiRs722JEvY-73FszMBw-QhgYz0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "299158352008-02a7njkmo173c6b6himim9srhca8jnfi.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

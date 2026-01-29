@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions, StatusBar, FlatList, Platform } from 'react-native';
 import MapView, { Marker, UrlTile } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Search, Plus, Minus, HelpCircle, Navigation, Share2, Home, Library, Zap, Wallet, Bell, MapPin } from 'lucide-react-native';
+import { Search, Plus, Minus, HelpCircle, Navigation, Share2, Home, Library, Zap, Wallet, Bell, MapPin, WrapText } from 'lucide-react-native';
+import LibraryScreen from './LibraryScreen';
 
 export default function HomeScreen() {
+    const [currentTab, setCurrentTab] = useState('Home');
     const [region, setRegion] = useState({
         latitude: 18.5204, // Pune approx
         longitude: 73.8567,
@@ -36,32 +38,34 @@ export default function HomeScreen() {
             <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
             {/* Map */}
-            <MapView
-                style={styles.map}
-                initialRegion={region}
-                mapType={Platform.OS === 'android' ? 'none' : 'standard'} // Use 'none' for tiles on Android
-                rotateEnabled={false}
-            >
-                {/* Use CartoDB Dark Matter tiles for dark theme without API Key */}
-                <UrlTile
-                    urlTemplate="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
-                    maximumZ={19}
-                    flipY={false}
-                />
+            {currentTab === 'Home' && (
+                <MapView
+                    style={styles.map}
+                    initialRegion={region}
+                    mapType={Platform.OS === 'android' ? 'none' : 'standard'} // Use 'none' for tiles on Android
+                    rotateEnabled={false}
+                >
+                    {/* Use CartoDB Dark Matter tiles for dark theme without API Key */}
+                    <UrlTile
+                        urlTemplate="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+                        maximumZ={19}
+                        flipY={false}
+                    />
 
-                {markers.map(marker => (
-                    <Marker
-                        key={marker.id}
-                        coordinate={{ latitude: marker.lat, longitude: marker.lng }}
-                        pinColor="#4CAF50" // Green
-                    >
-                        <View style={styles.customMarker}>
-                            <MapPin size={24} color="#4CAF50" fill="#4CAF50" />
-                            <View style={styles.markerDot} />
-                        </View>
-                    </Marker>
-                ))}
-            </MapView>
+                    {markers.map(marker => (
+                        <Marker
+                            key={marker.id}
+                            coordinate={{ latitude: marker.lat, longitude: marker.lng }}
+                            pinColor="#4CAF50" // Green
+                        >
+                            <View style={styles.customMarker}>
+                                <MapPin size={24} color="#4CAF50" fill="#4CAF50" />
+                                <View style={styles.markerDot} />
+                            </View>
+                        </Marker>
+                    ))}
+                </MapView>
+            )}
 
             {/* Header */}
             <SafeAreaView style={styles.headerContainer} edges={['top']}>
@@ -86,87 +90,97 @@ export default function HomeScreen() {
                 </View>
             </SafeAreaView>
 
+
+
             {/* Floating Controls */}
-            <TouchableOpacity style={styles.searchButton}>
-                <Search color="#fff" size={24} />
-            </TouchableOpacity>
+            {currentTab === 'Home' && (
+                <>
+                    <TouchableOpacity style={styles.searchButton}>
+                        <Search color="#fff" size={24} />
+                    </TouchableOpacity>
 
-            <View style={styles.zoomControls}>
-                <TouchableOpacity style={styles.zoomBtn}>
-                    <Plus color="#000" size={24} />
-                </TouchableOpacity>
-                <View style={styles.divider} />
-                <TouchableOpacity style={styles.zoomBtn}>
-                    <Minus color="#000" size={24} />
-                </TouchableOpacity>
-            </View>
+                    <View style={styles.zoomControls}>
+                        <TouchableOpacity style={styles.zoomBtn}>
+                            <Plus color="#000" size={24} />
+                        </TouchableOpacity>
+                        <View style={styles.divider} />
+                        <TouchableOpacity style={styles.zoomBtn}>
+                            <Minus color="#000" size={24} />
+                        </TouchableOpacity>
+                    </View>
 
-            <TouchableOpacity style={styles.helpButton}>
-                <HelpCircle color="#fff" size={28} />
-            </TouchableOpacity>
+                    <TouchableOpacity style={styles.helpButton}>
+                        <HelpCircle color="#fff" size={28} />
+                    </TouchableOpacity>
 
-            {/* Station Card */}
-            <View style={styles.cardContainer}>
-                <View style={styles.cardContentRow}>
-                    <View style={styles.leftColumn}>
-                        <Text style={styles.stationName}>Bentork Charging Station</Text>
-                        <View style={styles.ratingRow}>
-                            <Text style={styles.ratingText}>4.3</Text>
-                            <StarRating rating={4.3} />
-                        </View>
-                        <Text style={styles.addressText}>
-                            City Center, 15 & 15A, Connaught Rd, near Lemon Tree Premier Hotel, Modi Colony, Pune, Maharashtra 411001
-                        </Text>
-                        <Text style={styles.statusText}>Available</Text>
+                    {/* Station Card */}
+                    <View style={styles.cardContainer}>
+                        <View style={styles.cardContentRow}>
+                            <View style={styles.leftColumn}>
 
-                        <View style={styles.connectorRow}>
-                            <View style={styles.connectorItem}>
-                                <Zap size={14} color="#00E5FF" />
-                                <Text style={styles.connectorText}> CCS • 60kW</Text>
-                                <Text style={styles.totalText}>Total 2</Text>
+                                <Text style={styles.stationName}>Bentork Charging Station</Text>
+                                <View style={styles.ratingRow}>
+                                    <Text style={styles.ratingText}>4.3</Text>
+                                    <StarRating rating={4.3} />
+                                </View>
+                                <Text style={styles.addressText}>
+                                    City Center, 15 & 15A, Connaught Rd, near Lemon Tree Premier Hotel, Modi Colony, Pune, Maharashtra 411001
+                                </Text>
+                                <Text style={styles.statusText}>Available</Text>
+
+                                <View style={styles.connectorRow}>
+                                    <View style={styles.connectorItem}>
+                                        <Zap size={14} color="#00E5FF" />
+                                        <Text style={styles.connectorText}> CCS • 60kW</Text>
+                                        <Text style={styles.totalText}>Total 2</Text>
+                                    </View>
+                                    <View style={styles.connectorItem}>
+                                        <Zap size={14} color="#00E5FF" />
+                                        <Text style={styles.connectorText}> Type 2 • 15kW</Text>
+                                        <Text style={styles.totalText}>Total 2</Text>
+                                    </View>
+                                </View>
                             </View>
-                            <View style={styles.connectorItem}>
-                                <Zap size={14} color="#00E5FF" />
-                                <Text style={styles.connectorText}> Type 2 • 15kW</Text>
-                                <Text style={styles.totalText}>Total 2</Text>
+
+                            <View style={styles.rightColumn}>
+                                <View style={styles.imageContainer}>
+                                    <Image
+                                        source={{ uri: 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80' }}
+                                        style={styles.stationImage}
+                                    />
+                                    <View style={styles.imageOverlay} />
+                                </View>
+
+                                <View style={styles.cardActions}>
+                                    <TouchableOpacity style={styles.actionBtn}>
+                                        <View style={styles.actionIconCircle}>
+                                            <Navigation color="#000" size={24} />
+                                        </View>
+                                        <Text style={styles.actionText}>Directions</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={styles.actionBtn}>
+                                        <View style={styles.actionIconCircle}>
+                                            <Share2 color="#000" size={24} />
+                                        </View>
+                                        <Text style={styles.actionText}>Share</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
                         </View>
                     </View>
+                </>
+            )}
 
-                    <View style={styles.rightColumn}>
-                        <View style={styles.imageContainer}>
-                            <Image
-                                source={{ uri: 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?ixlib=rb-1.2.1&auto=format&fit=crop&w=300&q=80' }}
-                                style={styles.stationImage}
-                            />
-                            <View style={styles.imageOverlay} />
-                        </View>
-
-                        <View style={styles.cardActions}>
-                            <TouchableOpacity style={styles.actionBtn}>
-                                <View style={styles.actionIconCircle}>
-                                    <Navigation color="#000" size={24} />
-                                </View>
-                                <Text style={styles.actionText}>Directions</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.actionBtn}>
-                                <View style={styles.actionIconCircle}>
-                                    <Share2 color="#000" size={24} />
-                                </View>
-                                <Text style={styles.actionText}>Share</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </View>
+            {/* Library Screen */}
+            {currentTab === 'Library' && <LibraryScreen />}
 
             {/* Bottom Nav */}
             <View style={styles.bottomNav}>
-                <TouchableOpacity style={styles.navItem}>
-                    <View style={styles.activeNavPill}>
-                        <Home color="#000" size={24} />
+                <TouchableOpacity style={styles.navItem} onPress={() => setCurrentTab('Home')}>
+                    <View style={currentTab === 'Home' ? styles.activeNavPill : null}>
+                        <Home color={currentTab === 'Home' ? "#000" : "#fff"} size={24} />
                     </View>
-                    <Text style={styles.navTextActive}>Home</Text>
+                    <Text style={currentTab === 'Home' ? styles.navTextActive : styles.navText}>Home</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.centerNavBtnContainer}>
@@ -175,9 +189,11 @@ export default function HomeScreen() {
                     </View>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.navItem}>
-                    <Library color="#fff" size={24} />
-                    <Text style={styles.navText}>Library</Text>
+                <TouchableOpacity style={styles.navItem} onPress={() => setCurrentTab('Library')}>
+                    <View style={currentTab === 'Library' ? styles.activeNavPill : null}>
+                        <Library color={currentTab === 'Library' ? "#000" : "#fff"} size={24} />
+                    </View>
+                    <Text style={currentTab === 'Library' ? styles.navTextActive : styles.navText}>Library</Text>
                 </TouchableOpacity>
             </View>
 

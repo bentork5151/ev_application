@@ -1,4 +1,4 @@
-package com.application
+package com.bentork.application
 
 import android.app.Application
 import com.facebook.react.PackageList
