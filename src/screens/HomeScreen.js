@@ -14,6 +14,7 @@ export default function HomeScreen() {
         longitudeDelta: 0.0421,
     });
 
+
     const markers = [
         { id: 1, lat: 18.5204, lng: 73.8567 },
         { id: 2, lat: 18.5304, lng: 73.8667 },
