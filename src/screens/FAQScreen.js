@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, LayoutAnimation, Platform, UIManager, StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronDown, ChevronLeft } from 'lucide-react-native';
+import { useTheme } from '../context/ThemeContext';
 
-// Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -55,8 +55,9 @@ const faqData = [
     }
 ];
 
-const FAQScreen = ({ navigation }) => {
+export default function FAQScreen({ navigation }) {
     const insets = useSafeAreaInsets();
+    const { theme, isDark } = useTheme();
     const [activeIndex, setActiveIndex] = useState(null);
 
     const toggleFaq = (index) => {
@@ -65,20 +66,22 @@ const FAQScreen = ({ navigation }) => {
     };
 
     return (
-        <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+            <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <ChevronLeft size={28} color="#fff" />
+                <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.backButton, { backgroundColor: theme.cardBg }]}>
+                    <ChevronLeft size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
-                {/* Title is displayed below header row in the web design, so keeping this minimal */}
+                <View style={{ width: 40 }} />
             </View>
 
-            <ScrollView contentContainerStyle={styles.content}>
+            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                 {/* Title Section */}
                 <View style={styles.titleContainer}>
-                    <Text style={styles.title}>FAQs</Text>
-                    <Text style={styles.subtitle}>Everything you need to know</Text>
+                    <Text style={[styles.title, { color: theme.textPrimary }]}>FAQs</Text>
+                    <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Everything you need to know</Text>
                 </View>
 
                 {/* FAQ List */}
@@ -88,23 +91,23 @@ const FAQScreen = ({ navigation }) => {
                         return (
                             <TouchableOpacity
                                 key={index}
-                                style={[styles.faqItem, isActive && styles.faqItemActive]}
+                                style={[styles.faqItem, { backgroundColor: theme.cardBg }]}
                                 onPress={() => toggleFaq(index)}
                                 activeOpacity={0.9}
                             >
                                 <View style={styles.questionRow}>
-                                    <Text style={styles.questionText}>{item.q}</Text>
+                                    <Text style={[styles.questionText, { color: theme.textPrimary }]}>{item.q}</Text>
                                     <View style={[styles.iconContainer, isActive && styles.iconActive]}>
                                         <ChevronDown
                                             size={20}
-                                            color={isActive ? "#39E29B" : "rgba(255, 255, 255, 0.5)"}
+                                            color={isActive ? "#00B074" : theme.textSecondary}
                                         />
                                     </View>
                                 </View>
 
                                 {isActive && (
                                     <View style={styles.answerContainer}>
-                                        <Text style={styles.answerText}>{item.a}</Text>
+                                        <Text style={[styles.answerText, { color: theme.textSecondary }]}>{item.a}</Text>
                                     </View>
                                 )}
                             </TouchableOpacity>
@@ -113,36 +116,33 @@ const FAQScreen = ({ navigation }) => {
                 </View>
 
                 {/* Footer */}
-                <View style={styles.footer}>
-                    <Text style={styles.footerText}>Still have questions?</Text>
+                <View style={[styles.footer, { borderTopColor: theme.divider }]}>
+                    <Text style={[styles.footerText, { color: theme.textSecondary }]}>Still have questions?</Text>
                     <Text style={styles.footerEmail}>support@bentork.com</Text>
                 </View>
-
             </ScrollView>
         </View>
     );
-};
+}
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#121212', // Match web bg
     },
     header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
         paddingHorizontal: 20,
         paddingBottom: 10,
         marginTop: 10,
-        marginBottom: 10,
     },
     backButton: {
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
         justifyContent: 'center',
         alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.05)',
     },
     content: {
         paddingBottom: 40,
@@ -153,49 +153,38 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 32,
-        fontWeight: 'bold',
-        color: '#39E29B',
+        fontWeight: '900',
         marginBottom: 4,
-        letterSpacing: -0.5,
     },
     subtitle: {
         fontSize: 14,
-        color: 'rgba(255, 255, 255, 0.6)',
     },
     listContainer: {
         paddingHorizontal: 24,
         gap: 12,
     },
     faqItem: {
-        backgroundColor: 'rgba(36, 36, 36, 0.9)',
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderRadius: 24,
         marginBottom: 12,
         overflow: 'hidden',
-    },
-    faqItemActive: {
-        backgroundColor: 'rgba(57, 226, 155, 0.08)',
-        borderColor: 'rgba(57, 226, 155, 0.4)',
     },
     questionRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 16,
+        padding: 18,
         paddingHorizontal: 20,
     },
     questionText: {
         fontSize: 15,
-        fontWeight: '500',
-        color: '#fff',
+        fontWeight: '800',
         flex: 1,
         marginRight: 10,
         lineHeight: 22,
     },
     iconContainer: {
-        // transform handled by style change or logic if needed, but react native vector icons don't animate rotation automatically without Animated API. 
-        // We'll just switch color/icon logic or rely on simple state for now.
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     iconActive: {
         transform: [{ rotate: '180deg' }]
@@ -207,27 +196,22 @@ const styles = StyleSheet.create({
     answerText: {
         fontSize: 14,
         lineHeight: 22,
-        color: 'rgba(255, 255, 255, 0.7)',
-        fontWeight: '300',
+        fontWeight: '500',
     },
     footer: {
         marginTop: 24,
         paddingTop: 20,
         borderTopWidth: 1,
-        borderTopColor: 'rgba(255, 255, 255, 0.1)',
         alignItems: 'center',
         marginHorizontal: 24,
     },
     footerText: {
         fontSize: 13,
-        color: 'rgba(255, 255, 255, 0.5)',
         marginBottom: 4,
     },
     footerEmail: {
         fontSize: 13,
-        color: '#39E29B',
-        fontWeight: '500',
+        color: '#00B074',
+        fontWeight: '800',
     },
 });
-
-export default FAQScreen;

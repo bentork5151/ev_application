@@ -8,8 +8,10 @@ import { authService } from '../services/auth';
 import ReviewCard from '../components/ReviewCard';
 import AddReviewModal from '../components/AddReviewModal';
 import StarRating from '../components/StarRating';
+import { useTheme } from '../context/ThemeContext';
 
 export default function StationReviewsScreen({ navigation, route }) {
+    const { theme } = useTheme();
     const { stationId, stationName } = route.params;
     const [reviews, setReviews] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -73,47 +75,47 @@ export default function StationReviewsScreen({ navigation, route }) {
     };
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { borderBottomColor: theme.divider }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <ArrowLeft size={24} color="#fff" />
+                    <ArrowLeft size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
                 <View style={{ flex: 1 }}>
-                    <Text style={styles.headerTitle} numberOfLines={1}>{stationName || 'Station Reviews'}</Text>
-                    <Text style={styles.headerSubtitle}>Ratings & Reviews</Text>
+                    <Text style={[styles.headerTitle, { color: theme.textPrimary }]} numberOfLines={1}>{stationName || 'Station Reviews'}</Text>
+                    <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>Ratings & Reviews</Text>
                 </View>
             </View>
 
             {loading ? (
                 <View style={[styles.center, { flex: 1 }]}>
-                    <ActivityIndicator size="large" color={Colors.primaryContainer} />
+                    <ActivityIndicator size="large" color="#00B074" />
                 </View>
             ) : (
                 <FlatList
                     data={reviews}
                     keyExtractor={(item) => item.id.toString()}
                     contentContainerStyle={styles.listContent}
-                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primaryContainer} />}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#00B074" />}
                     ListHeaderComponent={() => (
                         <View style={styles.summaryContainer}>
-                            <View style={styles.ratingBigBox}>
-                                <Text style={styles.bigRating}>{summary?.averageRating ? summary.averageRating.toFixed(1) : '0.0'}</Text>
+                            <View style={[styles.ratingBigBox, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
+                                <Text style={[styles.bigRating, { color: theme.textPrimary }]}>{summary?.averageRating ? summary.averageRating.toFixed(1) : '0.0'}</Text>
                                 <StarRating rating={summary?.averageRating || 0} size={20} />
-                                <Text style={styles.totalCount}>{summary?.totalReviews || 0} reviews</Text>
+                                <Text style={[styles.totalCount, { color: theme.textSecondary }]}>{summary?.totalReviews || 0} reviews</Text>
                             </View>
 
                             {/* Write Review CTA */}
                             {!myReview && (
-                                <TouchableOpacity style={styles.writeBtn} onPress={handleAddReview}>
-                                    <MessageSquarePlus size={20} color="#fff" />
-                                    <Text style={styles.writeBtnText}>Write a Review</Text>
+                                <TouchableOpacity style={[styles.writeBtn, { backgroundColor: theme.white }]} onPress={handleAddReview}>
+                                    <MessageSquarePlus size={20} color={theme.textPrimary} />
+                                    <Text style={[styles.writeBtnText, { color: theme.textPrimary }]}>Write a Review</Text>
                                 </TouchableOpacity>
                             )}
 
                             {myReview && (
                                 <View style={styles.myReviewContainer}>
-                                    <Text style={styles.sectionTitle}>Your Review</Text>
+                                    <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Your Review</Text>
                                     <ReviewCard
                                         review={myReview}
                                         isOwnReview={true}
@@ -123,7 +125,7 @@ export default function StationReviewsScreen({ navigation, route }) {
                                 </View>
                             )}
 
-                            {reviews.length > 0 && <Text style={[styles.sectionTitle, { marginTop: 20 }]}>All Reviews</Text>}
+                            {reviews.length > 0 && <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 20 }]}>All Reviews</Text>}
                         </View>
                     )}
                     renderItem={({ item }) => {
@@ -142,7 +144,7 @@ export default function StationReviewsScreen({ navigation, route }) {
                     ListEmptyComponent={() => (
                         !myReview && (
                             <View style={styles.emptyState}>
-                                <Text style={styles.emptyText}>No reviews yet. Be the first to review!</Text>
+                                <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No reviews yet. Be the first to review!</Text>
                             </View>
                         )
                     )}
@@ -165,7 +167,6 @@ export default function StationReviewsScreen({ navigation, route }) {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#121212',
     },
     center: {
         justifyContent: 'center',
@@ -177,7 +178,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 12,
         borderBottomWidth: 1,
-        borderBottomColor: '#222',
         gap: 16,
     },
     backBtn: {
@@ -186,11 +186,9 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#fff',
     },
     headerSubtitle: {
         fontSize: 12,
-        color: '#aaa',
     },
     listContent: {
         padding: 16,
@@ -202,24 +200,19 @@ const styles = StyleSheet.create({
     ratingBigBox: {
         alignItems: 'center',
         marginBottom: 20,
-        backgroundColor: '#1E1E1E',
         padding: 24,
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: '#333',
     },
     bigRating: {
         fontSize: 48,
         fontWeight: 'bold',
-        color: '#fff',
     },
     totalCount: {
-        color: '#888',
         marginTop: 8,
     },
     writeBtn: {
         flexDirection: 'row',
-        backgroundColor: Colors.primaryContainer,
         padding: 16,
         borderRadius: 12,
         alignItems: 'center',
@@ -227,7 +220,6 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     writeBtnText: {
-        color: '#fff',
         fontWeight: 'bold',
         fontSize: 16,
     },
@@ -235,7 +227,6 @@ const styles = StyleSheet.create({
         marginTop: 10,
     },
     sectionTitle: {
-        color: '#fff',
         fontSize: 18,
         fontWeight: 'bold',
         marginBottom: 12,
@@ -245,7 +236,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     emptyText: {
-        color: '#666',
         fontSize: 16,
     }
 });

@@ -7,8 +7,10 @@ import { authService } from '../services/auth';
 import { MoreVertical, User, Edit2, Trash2 } from 'lucide-react-native';
 import { formatDistanceToNow } from 'date-fns';
 import { useAlert } from '../context/AlertContext';
+import { useTheme } from '../context/ThemeContext';
 
 const ReviewCard = ({ review, onEdit, onDelete, isOwnReview }) => {
+    const { theme } = useTheme();
     const { showAlert } = useAlert();
     const [showOptions, setShowOptions] = useState(false);
     const [author, setAuthor] = useState({
@@ -73,35 +75,35 @@ const ReviewCard = ({ review, onEdit, onDelete, isOwnReview }) => {
     const dateStr = review.createdAt ? formatDistanceToNow(new Date(review.createdAt), { addSuffix: true }) : 'Recently';
 
     return (
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
             <View style={styles.header}>
                 <View style={styles.userInfo}>
-                    <View style={styles.avatar}>
+                    <View style={[styles.avatar, { backgroundColor: theme.divider }]}>
                         {author.pic ? (
                             <Image source={{ uri: author.pic }} style={styles.avatarImg} />
                         ) : (
-                            <User size={20} color="#ccc" />
+                            <User size={20} color={theme.textSecondary} />
                         )}
                     </View>
                     <View>
-                        <Text style={styles.userName}>{author.name}</Text>
-                        <Text style={styles.date}>{dateStr}</Text>
+                        <Text style={[styles.userName, { color: theme.textPrimary }]}>{author.name}</Text>
+                        <Text style={[styles.date, { color: theme.textSecondary }]}>{dateStr}</Text>
                     </View>
                 </View>
 
                 {isOwnReview && (
                     <TouchableOpacity onPress={() => setShowOptions(!showOptions)} style={styles.moreBtn}>
-                        <MoreVertical size={20} color="#aaa" />
+                        <MoreVertical size={20} color={theme.textSecondary} />
                     </TouchableOpacity>
                 )}
             </View>
 
             {/* Options Menu (Simple Toggle) */}
             {showOptions && isOwnReview && (
-                <View style={styles.optionsMenu}>
+                <View style={[styles.optionsMenu, { backgroundColor: theme.white }]}>
                     <TouchableOpacity style={styles.optionItem} onPress={() => { setShowOptions(false); onEdit(review); }}>
-                        <Edit2 size={16} color={Colors.primaryContainer} />
-                        <Text style={[styles.optionText, { color: Colors.primaryContainer }]}>Edit</Text>
+                        <Edit2 size={16} color="#00B074" />
+                        <Text style={[styles.optionText, { color: '#00B074' }]}>Edit</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.optionItem} onPress={() => {
                         setShowOptions(false);
@@ -110,12 +112,11 @@ const ReviewCard = ({ review, onEdit, onDelete, isOwnReview }) => {
                             { text: "Delete", style: "destructive", onPress: () => onDelete(review.id) }
                         ]);
                     }}>
-                        <Trash2 size={16} color={Colors.statusRed} />
-                        <Text style={[styles.optionText, { color: Colors.statusRed }]}>Delete</Text>
+                        <Trash2 size={16} color="#EF5350" />
+                        <Text style={[styles.optionText, { color: '#EF5350' }]}>Delete</Text>
                     </TouchableOpacity>
                 </View>
             )}
-
 
             <View style={styles.ratingRow}>
                 <StarRating rating={review.rating} size={14} />
@@ -123,7 +124,7 @@ const ReviewCard = ({ review, onEdit, onDelete, isOwnReview }) => {
 
             {/* Render review text with fallback options */}
             {(review.comment || review.review_text || review.text || review.description) ? (
-                <Text style={styles.comment}>
+                <Text style={[styles.comment, { color: theme.textSecondary }]}>
                     {review.comment || review.review_text || review.text || review.description}
                 </Text>
             ) : null}
@@ -133,12 +134,10 @@ const ReviewCard = ({ review, onEdit, onDelete, isOwnReview }) => {
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: '#1E1E1E',
         borderRadius: 12,
         padding: 16,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: '#333',
     },
     header: {
         flexDirection: 'row',
@@ -155,7 +154,6 @@ const styles = StyleSheet.create({
         width: 36,
         height: 36,
         borderRadius: 18,
-        backgroundColor: '#333',
         alignItems: 'center',
         justifyContent: 'center',
         overflow: 'hidden',
@@ -165,12 +163,10 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     userName: {
-        color: '#fff',
         fontWeight: 'bold',
         fontSize: 14,
     },
     date: {
-        color: '#aaa',
         fontSize: 12,
     },
     moreBtn: {
@@ -180,7 +176,6 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     comment: {
-        color: '#ddd',
         fontSize: 14,
         lineHeight: 20,
     },
@@ -188,7 +183,6 @@ const styles = StyleSheet.create({
         position: 'absolute',
         right: 10,
         top: 40,
-        backgroundColor: '#2A2A2A',
         borderRadius: 8,
         padding: 8,
         zIndex: 10,

@@ -77,7 +77,7 @@ export default function TripPlannerScreen({ navigation }) {
             toValue: idx,
             duration: 250,
             easing: Animated.linear, // Or Easing.out(Easing.cubic)
-            useNativeDriver: false,
+            useNativeDriver: true,
         }).start();
 
         summaryTabRef.current = idx;
@@ -1502,9 +1502,9 @@ function SummaryTabContent({ stations, selectedStations, toggleStation, emptyMes
         Animated.timing(fadeAnim, {
             toValue: 1,
             duration: 180,
-            useNativeDriver: false,
+            useNativeDriver: true,
         }).start();
-    }, [stations]);
+    }, [stations, fadeAnim]);
 
     return (
         <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
@@ -1551,7 +1551,7 @@ function SummaryTabContent({ stations, selectedStations, toggleStation, emptyMes
                                 </TouchableOpacity>
                             </View>
                             <View style={{ marginTop: 8 }}>
-                                {station.status === 'Available' ?
+                                {(station.status || '').toLowerCase() === 'available' ?
                                     <Text style={{ color: Colors.white, fontSize: 12 }}>Available • Fast Charging</Text> :
                                     <Text style={{ color: 'orange', fontSize: 12 }}>{station.status}</Text>
                                 }

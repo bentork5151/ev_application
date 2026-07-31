@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Image, Platform, KeyboardAvoidingView, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Platform, KeyboardAvoidingView, ScrollView, ActivityIndicator, StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Mail, Lock, ChevronLeft, KeyRound, CheckCircle, ArrowRight } from 'lucide-react-native';
 import { authApi } from '../services/api';
@@ -70,6 +70,7 @@ export default function ResetPasswordScreen({ navigation }) {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.container}
         >
+            <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
             <ScrollView
                 contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 20 }]}
                 showsVerticalScrollIndicator={false}
@@ -79,13 +80,13 @@ export default function ResetPasswordScreen({ navigation }) {
                     style={styles.backBtn}
                     onPress={() => step === 2 ? setStep(1) : navigation.goBack()}
                 >
-                    <ChevronLeft size={24} color="#fff" />
+                    <ChevronLeft size={24} color="#1A1A1A" />
                 </TouchableOpacity>
 
                 {/* Header Content */}
                 <View style={styles.headerContainer}>
                     <View style={styles.iconCircle}>
-                        <KeyRound size={32} color="#39E29B" />
+                        <KeyRound size={32} color="#00B074" />
                     </View>
                     <Text style={styles.title}>
                         {step === 1 ? "Forgot Password?" : "Reset Password"}
@@ -102,11 +103,11 @@ export default function ResetPasswordScreen({ navigation }) {
                     <View style={styles.formContainer}>
                         <Text style={styles.inputLabel}>Email Address</Text>
                         <View style={styles.inputWrapper}>
-                            <Mail size={20} color="#888" style={styles.inputIcon} />
+                            <Mail size={18} color="#5A6B7C" style={styles.inputIcon} />
                             <TextInput
                                 style={styles.input}
                                 placeholder="Enter your email"
-                                placeholderTextColor="#666"
+                                placeholderTextColor="#7E8E9F"
                                 value={email}
                                 onChangeText={setEmail}
                                 keyboardType="email-address"
@@ -120,11 +121,11 @@ export default function ResetPasswordScreen({ navigation }) {
                             disabled={loading || !email}
                         >
                             {loading ? (
-                                <ActivityIndicator color="#000" />
+                                <ActivityIndicator color="#1A1A1A" />
                             ) : (
                                 <View style={styles.btnContent}>
                                     <Text style={styles.btnText}>Send Code</Text>
-                                    <ArrowRight size={20} color="#000" style={{ marginLeft: 8 }} />
+                                    <ArrowRight size={18} color="#1A1A1A" style={{ marginLeft: 8 }} />
                                 </View>
                             )}
                         </TouchableOpacity>
@@ -137,11 +138,11 @@ export default function ResetPasswordScreen({ navigation }) {
                         {/* OTP Input */}
                         <Text style={styles.inputLabel}>Verification Code</Text>
                         <View style={styles.inputWrapper}>
-                            <CheckCircle size={20} color="#888" style={styles.inputIcon} />
+                            <CheckCircle size={18} color="#5A6B7C" style={styles.inputIcon} />
                             <TextInput
                                 style={styles.input}
                                 placeholder="Enter OTP Code"
-                                placeholderTextColor="#666"
+                                placeholderTextColor="#7E8E9F"
                                 value={otp}
                                 onChangeText={setOtp}
                                 keyboardType="numeric"
@@ -151,11 +152,11 @@ export default function ResetPasswordScreen({ navigation }) {
                         {/* New Password */}
                         <Text style={styles.inputLabel}>New Password</Text>
                         <View style={styles.inputWrapper}>
-                            <Lock size={20} color="#888" style={styles.inputIcon} />
+                            <Lock size={18} color="#5A6B7C" style={styles.inputIcon} />
                             <TextInput
                                 style={styles.input}
                                 placeholder="Enter new password"
-                                placeholderTextColor="#666"
+                                placeholderTextColor="#7E8E9F"
                                 value={newPassword}
                                 onChangeText={setNewPassword}
                                 secureTextEntry
@@ -165,11 +166,11 @@ export default function ResetPasswordScreen({ navigation }) {
                         {/* Confirm Password */}
                         <Text style={styles.inputLabel}>Confirm Password</Text>
                         <View style={styles.inputWrapper}>
-                            <Lock size={20} color="#888" style={styles.inputIcon} />
+                            <Lock size={18} color="#5A6B7C" style={styles.inputIcon} />
                             <TextInput
                                 style={styles.input}
                                 placeholder="Re-enter password"
-                                placeholderTextColor="#666"
+                                placeholderTextColor="#7E8E9F"
                                 value={confirmPassword}
                                 onChangeText={setConfirmPassword}
                                 secureTextEntry
@@ -182,7 +183,7 @@ export default function ResetPasswordScreen({ navigation }) {
                             disabled={loading}
                         >
                             {loading ? (
-                                <ActivityIndicator color="#000" />
+                                <ActivityIndicator color="#1A1A1A" />
                             ) : (
                                 <Text style={styles.btnText}>Reset Password</Text>
                             )}
@@ -197,7 +198,7 @@ export default function ResetPasswordScreen({ navigation }) {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#121212',
+        backgroundColor: '#D0D6DB',
     },
     scrollContent: {
         flexGrow: 1,
@@ -208,7 +209,7 @@ const styles = StyleSheet.create({
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.05)',
+        backgroundColor: '#E2E7EC',
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 20,
@@ -221,30 +222,29 @@ const styles = StyleSheet.create({
         width: 64,
         height: 64,
         borderRadius: 32,
-        backgroundColor: 'rgba(57, 226, 155, 0.1)',
+        backgroundColor: '#E2E7EC',
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(57, 226, 155, 0.2)',
     },
     title: {
         fontSize: 28,
-        fontWeight: 'bold',
-        color: '#fff',
+        fontWeight: '900',
+        color: '#1A1A1A',
         marginBottom: 10,
     },
     subtitle: {
-        fontSize: 16,
-        color: '#888',
-        lineHeight: 24,
+        fontSize: 14,
+        color: '#5A6B7C',
+        lineHeight: 22,
+        fontWeight: '600',
     },
     formContainer: {
         width: '100%',
     },
     inputLabel: {
-        color: '#ccc',
-        fontSize: 14,
+        color: '#5A6B7C',
+        fontSize: 13,
         fontWeight: '600',
         marginBottom: 8,
         marginLeft: 4,
@@ -252,35 +252,29 @@ const styles = StyleSheet.create({
     inputWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#1E1E1E',
-        borderRadius: 16,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 28,
         paddingHorizontal: 16,
         height: 56,
         marginBottom: 20,
-        borderWidth: 1,
-        borderColor: '#333',
     },
     inputIcon: {
         marginRight: 12,
     },
     input: {
         flex: 1,
-        color: '#fff',
-        fontSize: 16,
+        color: '#1A1A1A',
+        fontSize: 14,
+        fontWeight: '800',
         height: '100%',
     },
     actionBtn: {
-        backgroundColor: '#39E29B',
+        backgroundColor: '#ECEFF1',
         height: 56,
-        borderRadius: 16,
+        borderRadius: 28,
         justifyContent: 'center',
         alignItems: 'center',
         marginTop: 10,
-        shadowColor: '#39E29B',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 4,
     },
     disabledBtn: {
         opacity: 0.5,
@@ -290,8 +284,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     btnText: {
-        color: '#000',
-        fontSize: 16,
-        fontWeight: 'bold',
+        color: '#1A1A1A',
+        fontSize: 15,
+        fontWeight: '900',
     },
 });

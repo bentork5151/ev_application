@@ -104,8 +104,8 @@ android {
         applicationId "com.bentork.application"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 54
-        versionName "1.15.5"
+        versionCode 106
+        versionName "1.16.5"
         // This injects the variable into your Manifest
         manifestPlaceholders = [MY_SECRET_KEY_PLACEHOLDER: mySecretKey]
         externalNativeBuild {
@@ -163,6 +163,3 @@ dependencies {
 
 }
 
-configurations.all {
-    exclude group: 'com.google.android.gms', module: 'play-services-maps'
-}

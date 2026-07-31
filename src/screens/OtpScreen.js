@@ -1,15 +1,46 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, ScrollView, Alert, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, ScrollView, Alert, ActivityIndicator, Platform, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Phone, ChevronLeft, ArrowRight, Lock, Eye, EyeOff, Smartphone } from 'lucide-react-native';
 import { useAlert } from '../context/AlertContext';
 import { authApi, userApi } from '../services/api';
 import { authService } from '../services/auth';
+import PermissionConsentModal from '../components/PermissionConsentModal';
+import { permissionService } from '../services/permissionService';
 
 export default function OtpScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
     const { showAlert } = useAlert();
     const googleUser = route.params?.googleUser;
+
+    const checkAndShowDeactivatedDialog = (error, defaultTitle = "Login Failed", defaultMsg = "Invalid credentials.") => {
+        const rawMsg = error?.userMessage || error?.response?.data?.message || error?.message || "";
+        const lowerMsg = rawMsg.toLowerCase();
+        const status = error?.response?.status;
+        const isDeactivated = lowerMsg.includes("deactivated") || 
+                              lowerMsg.includes("disabled") || 
+                              lowerMsg.includes("runtime error") || 
+                              status === 500;
+
+        if (isDeactivated) {
+            showAlert(
+                "Account Deactivated",
+                "Your account has been deactivated. If you believe this is an error or wish to reactivate your account, please contact our support team.",
+                [
+                    { text: "OK", style: "cancel" },
+                    {
+                        text: "Contact Support",
+                        onPress: () => {
+                            Linking.openURL('mailto:support@bentork.com?subject=Deactivated%20Account%20Reactivation');
+                        }
+                    }
+                ]
+            );
+            return true;
+        }
+        showAlert(defaultTitle, rawMsg || defaultMsg);
+        return false;
+    };
 
     // UI State
     const [loading, setLoading] = useState(false);
@@ -18,6 +49,9 @@ export default function OtpScreen({ navigation, route }) {
     const [phoneNumber, setPhoneNumber] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+
+    const [showPermissionModal, setShowPermissionModal] = useState(false);
+    const pendingNavRef = React.useRef(null);
 
     const handleAction = async () => {
         // Basic validation
@@ -64,27 +98,37 @@ export default function OtpScreen({ navigation, route }) {
                     await authService.setUser(userData);
 
                     // Navigate to target or Home
-                    const { postLoginTarget: plt, postLoginParams: plp } = route.params || {};
-                    const tcAccepted = await authService.hasAcceptedTerms();
-                    if (plt) {
-                        if (!tcAccepted) {
+                    const executeNav = async () => {
+                        const { postLoginTarget: plt, postLoginParams: plp } = route.params || {};
+                        const tcAccepted = await authService.hasAcceptedTerms();
+                        if (plt) {
+                            if (!tcAccepted) {
+                                navigation.reset({
+                                    index: 0,
+                                    routes: [{ name: 'TermsConsent', params: { nextScreen: plt, nextParams: plp } }]
+                                });
+                            } else {
+                                navigation.replace(plt, plp);
+                            }
+                        } else if (!tcAccepted) {
                             navigation.reset({
                                 index: 0,
-                                routes: [{ name: 'TermsConsent', params: { nextScreen: plt, nextParams: plp } }]
+                                routes: [{ name: 'TermsConsent', params: { nextScreen: 'Home' } }],
                             });
                         } else {
-                            navigation.replace(plt, plp);
+                            navigation.reset({
+                                index: 0,
+                                routes: [{ name: 'Home' }],
+                            });
                         }
-                    } else if (!tcAccepted) {
-                        navigation.reset({
-                            index: 0,
-                            routes: [{ name: 'TermsConsent', params: { nextScreen: 'Home' } }],
-                        });
+                    };
+
+                    const consentDone = await permissionService.hasCompletedConsent();
+                    if (!consentDone) {
+                        pendingNavRef.current = executeNav;
+                        setShowPermissionModal(true);
                     } else {
-                        navigation.reset({
-                            index: 0,
-                            routes: [{ name: 'Home' }],
-                        });
+                        await executeNav();
                     }
                 } else {
                     showAlert(
@@ -124,8 +168,7 @@ export default function OtpScreen({ navigation, route }) {
         } catch (error) {
             setLoading(false);
             console.error("Phone Login Failed:", error);
-            const msg = error.userMessage || error.response?.data?.message || "Invalid credentials.";
-            showAlert("Login Failed", msg);
+            checkAndShowDeactivatedDialog(error, "Login Failed", "Invalid credentials.");
         }
     };
 
@@ -196,8 +239,8 @@ export default function OtpScreen({ navigation, route }) {
 
             // 4. FCM Token Sync (Send to Backend)
             try {
-                const { getFCMToken } = require('../services/fcmService');
-                getFCMToken(); // Run in background
+                const { registerFCM } = require('../services/fcmService');
+                registerFCM(); // Run in background
             } catch (fcmErr) {
                 console.warn("FCM sync error after OTP login:", fcmErr);
             }
@@ -206,18 +249,27 @@ export default function OtpScreen({ navigation, route }) {
             setLoading(false);
 
             // Check T&C acceptance before navigating
-            const tcAccepted = await authService.hasAcceptedTerms();
+            const executeNav2 = async () => {
+                const tcAccepted = await authService.hasAcceptedTerms();
+                if (!tcAccepted) {
+                    navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'TermsConsent', params: { nextScreen: 'Home' } }],
+                    });
+                } else {
+                    navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'Home' }],
+                    });
+                }
+            };
 
-            if (!tcAccepted) {
-                navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'TermsConsent', params: { nextScreen: 'Home' } }],
-                });
+            const consentDone2 = await permissionService.hasCompletedConsent();
+            if (!consentDone2) {
+                pendingNavRef.current = executeNav2;
+                setShowPermissionModal(true);
             } else {
-                navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'Home' }],
-                });
+                await executeNav2();
             }
 
         } catch (error) {
@@ -319,6 +371,30 @@ export default function OtpScreen({ navigation, route }) {
                 </View>
 
             </ScrollView>
+
+            <PermissionConsentModal
+                visible={showPermissionModal}
+                onComplete={async () => {
+                    setShowPermissionModal(false);
+                    if (pendingNavRef.current) {
+                        const navFn = pendingNavRef.current;
+                        pendingNavRef.current = null;
+                        await navFn();
+                    } else {
+                        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+                    }
+                }}
+                onSkip={async () => {
+                    setShowPermissionModal(false);
+                    if (pendingNavRef.current) {
+                        const navFn = pendingNavRef.current;
+                        pendingNavRef.current = null;
+                        await navFn();
+                    } else {
+                        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+                    }
+                }}
+            />
         </KeyboardAvoidingView>
     );
 }

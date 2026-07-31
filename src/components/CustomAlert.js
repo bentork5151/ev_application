@@ -1,10 +1,11 @@
 import React, { useRef } from 'react';
 import { View, Text, Modal, TouchableOpacity, StyleSheet, Dimensions, Animated } from 'react-native';
-import { Colors, Fonts } from '../styles/GlobalStyles';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
 const CustomAlert = ({ visible, title, message, buttons = [], onClose }) => {
+    const { theme } = useTheme();
     const progress = useRef(new Animated.Value(0)).current;
 
     React.useEffect(() => {
@@ -47,10 +48,10 @@ const CustomAlert = ({ visible, title, message, buttons = [], onClose }) => {
             animationType="none"
             onRequestClose={onClose}
         >
-            <Animated.View style={[styles.overlay, overlayStyle]}>
-                <Animated.View style={[styles.alertContainer, cardStyle]}>
-                    {title && <Text style={styles.title}>{title}</Text>}
-                    {message && <Text style={styles.message}>{message}</Text>}
+            <Animated.View style={[styles.overlay, { backgroundColor: theme.overlayBg }, overlayStyle]}>
+                <Animated.View style={[styles.alertContainer, { backgroundColor: theme.background }, cardStyle]}>
+                    {title && <Text style={[styles.title, { color: theme.textPrimary }]}>{title}</Text>}
+                    {message && <Text style={[styles.message, { color: theme.textSecondary }]}>{message}</Text>}
 
                     <View style={styles.buttonContainer}>
                         {buttons.length > 0 ? (
@@ -59,18 +60,19 @@ const CustomAlert = ({ visible, title, message, buttons = [], onClose }) => {
                                     key={index}
                                     style={[
                                         styles.button,
+                                        { backgroundColor: theme.white },
                                         btn.style === 'cancel' && styles.cancelButton,
                                         btn.style === 'destructive' && styles.destructiveButton,
-                                        // If frequent buttons, might want column layout, but row is standard for 2
                                     ]}
                                     onPress={() => {
                                         if (btn.onPress) btn.onPress();
-                                        onClose(); // Auto close on press usually desirable
+                                        onClose();
                                     }}
                                 >
                                     <Text style={[
                                         styles.buttonText,
-                                        btn.style === 'cancel' && styles.cancelText,
+                                        { color: theme.textPrimary },
+                                        btn.style === 'cancel' && [styles.cancelText, { color: theme.textSecondary }],
                                         btn.style === 'destructive' && styles.destructiveText,
                                     ]}>
                                         {btn.text}
@@ -78,86 +80,75 @@ const CustomAlert = ({ visible, title, message, buttons = [], onClose }) => {
                                 </TouchableOpacity>
                             ))
                         ) : (
-                            <TouchableOpacity style={styles.button} onPress={onClose}>
-                                <Text style={styles.buttonText}>OK</Text>
+                            <TouchableOpacity style={[styles.button, { backgroundColor: theme.white }]} onPress={onClose}>
+                                <Text style={[styles.buttonText, { color: theme.textPrimary }]}>OK</Text>
                             </TouchableOpacity>
                         )}
                     </View>
-                    </Animated.View>
                 </Animated.View>
-            </Modal>
+            </Animated.View>
+        </Modal>
     );
 };
 
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
         justifyContent: 'center',
         alignItems: 'center',
     },
     alertContainer: {
         width: width * 0.85,
-        backgroundColor: Colors.cardBg, // Matte theme card
-        borderRadius: 20,
+        borderRadius: 28,
         padding: 24,
-        borderWidth: 1,
-        borderColor: Colors.glassBorderDark,
         elevation: 10,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
+        shadowOpacity: 0.15,
         shadowRadius: 10,
     },
     title: {
         fontSize: 20,
-        fontFamily: Fonts.primary,
-        fontWeight: 'bold',
-        color: Colors.white,
+        fontWeight: '900',
         marginBottom: 10,
-        textAlign: 'left',
+        textAlign: 'center',
     },
     message: {
-        fontSize: 16,
-        fontFamily: Fonts.primary,
-        color: '#ccc',
-        textAlign: 'left',
+        fontSize: 14,
+        textAlign: 'center',
         marginBottom: 24,
-        lineHeight: 22,
+        lineHeight: 20,
+        fontWeight: '600',
     },
     buttonContainer: {
         flexDirection: 'row',
-        justifyContent: 'flex-end',
+        justifyContent: 'center',
         gap: 12,
-        flexWrap: 'wrap',
+        width: '100%',
     },
     button: {
-        backgroundColor: Colors.primaryContainer,
-        paddingVertical: 12,
-        paddingHorizontal: 12,
-        borderRadius: 12,
-        minWidth: 80,
+        height: 50,
+        borderRadius: 25,
         alignItems: 'center',
+        justifyContent: 'center',
         flex: 1,
     },
     buttonText: {
-        color: Colors.onPrimaryContainer,
-        fontWeight: 'bold',
-        fontSize: 13,
+        fontWeight: '900',
+        fontSize: 14,
     },
     cancelButton: {
         backgroundColor: 'transparent',
-        borderWidth: 1,
-        borderColor: '#555',
     },
     cancelText: {
-        color: '#fff',
+        fontWeight: '800',
     },
     destructiveButton: {
-        backgroundColor: '#FF453A', // Standard Red
+        backgroundColor: '#EF5350',
     },
     destructiveText: {
-        color: '#fff',
+        color: '#FFFFFF',
+        fontWeight: '900',
     },
 });
 

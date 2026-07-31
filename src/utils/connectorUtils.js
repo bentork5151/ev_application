@@ -1,18 +1,18 @@
 export const ConnectorIcons = {
-    'CCS 2': require('../assets/icons/ic_chargers/ccs_combo_2.png'),
-    'CCS2': require('../assets/icons/ic_chargers/ccs_combo_2.png'),
-    'CCS 1': require('../assets/icons/ic_chargers/ccs_combo_1.png'),
-    'CCS1': require('../assets/icons/ic_chargers/ccs_combo_1.png'),
-    'Type 2': require('../assets/icons/ic_chargers/type_2.png'),
-    'Type2': require('../assets/icons/ic_chargers/type_2.png'),
-    'Type 1': require('../assets/icons/ic_chargers/type_1.png'),
-    'Type1': require('../assets/icons/ic_chargers/type_1.png'),
-    'CHAdeMO': require('../assets/icons/ic_chargers/chademo.png'),
-    'GB/T': require('../assets/icons/ic_chargers/gb_t.png'),
-    'GBT': require('../assets/icons/ic_chargers/gb_t.png'),
-    'AC': require('../assets/icons/ic_chargers/ac_dc.png'), // Fallback for Generic AC
-    'DC': require('../assets/icons/ic_chargers/ac_dc.png'), // Fallback for Generic DC
-    'Default': require('../assets/icons/ic_chargers/ac_dc.png'), // Fallback
+    'CCS 2': require('../assets/icons/ic_chargers/ccs_combo_2.webp'),
+    'CCS2': require('../assets/icons/ic_chargers/ccs_combo_2.webp'),
+    'CCS 1': require('../assets/icons/ic_chargers/ccs_combo_1.webp'),
+    'CCS1': require('../assets/icons/ic_chargers/ccs_combo_1.webp'),
+    'Type 2': require('../assets/icons/ic_chargers/type_2.webp'),
+    'Type2': require('../assets/icons/ic_chargers/type_2.webp'),
+    'Type 1': require('../assets/icons/ic_chargers/type_1.webp'),
+    'Type1': require('../assets/icons/ic_chargers/type_1.webp'),
+    'CHAdeMO': require('../assets/icons/ic_chargers/chademo.webp'),
+    'GB/T': require('../assets/icons/ic_chargers/gb_t.webp'),
+    'GBT': require('../assets/icons/ic_chargers/gb_t.webp'),
+    'AC': require('../assets/icons/ic_chargers/ac_dc.webp'), // Fallback for Generic AC
+    'DC': require('../assets/icons/ic_chargers/ac_dc.webp'), // Fallback for Generic DC
+    'Default': require('../assets/icons/ic_chargers/ac_dc.webp'), // Fallback
 };
 
 export const getConnectorIcon = (type) => {

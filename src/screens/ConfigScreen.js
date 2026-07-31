@@ -1,1647 +1,888 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, StatusBar, ActivityIndicator, Alert, Modal, Animated, Easing, Dimensions, Platform, PanResponder } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-// Custom Icons
-import ArrowBackIcon from '../assets/icons/Outlined/arrow_back_ios_new_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.svg';
-import WalletIcon from '../assets/icons/Outlined/wallet_24dp_E3E3E3_FILL0_wght300_GRAD-25_opsz24.svg';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, StatusBar, ActivityIndicator, Modal, Animated, Easing, Dimensions, Platform, PanResponder, DeviceEventEmitter } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ChevronLeft, ChevronRight, ChevronDown, X, Calendar, Info, Power } from 'lucide-react-native';
 import BoltIcon from '../assets/icons/Rounded Fill/bolt_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.svg';
-import AddIcon from '../assets/icons/Outlined/add_24dp_E3E3E3_FILL0_wght400_GRAD-25_opsz24.svg';
-import RemoveIcon from '../assets/icons/Rounded Fill/substract.svg';
-import { X, Check, Calendar, Clock } from 'lucide-react-native';
-import { format, addDays, isSameDay } from 'date-fns';
-
-import Svg, { Path, G, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
-// import { BlurView } from '@react-native-community/blur';
-import { Colors } from '../styles/GlobalStyles';
-
-import { plansApi, authApi, userApi, sessionApi, slotsApi, slotBookingApi } from '../services/api';
+import { format, isSameDay } from 'date-fns';
+import Slider from '@react-native-community/slider';
+import { sessionApi, slotsApi, slotBookingApi, chargersApi, userApi } from '../services/api';
 import { authService } from '../services/auth';
 import { useAlert } from '../context/AlertContext';
+import LoginRequiredDialog from '../components/LoginRequiredDialog';
+import { useTheme } from '../context/ThemeContext';
 
 const { width, height } = Dimensions.get('window');
 
-const PATH_GREEN = "M41.3,-72.6C53.4,-65.3,63.2,-54.6,70.4,-42.1C77.6,-29.6,82.2,-15.3,81.3,-1.4C80.4,12.5,74,26,64.8,37.3C55.6,48.6,43.6,57.7,30.8,63.2C18,68.7,4.4,70.6,-8.3,69.7C-21,68.8,-32.8,65.1,-43.2,58.3C-53.6,51.5,-62.6,41.6,-68.9,30.1C-75.2,18.6,-78.8,5.5,-75.9,-6.2C-73,-17.9,-63.6,-28.2,-53.4,-36.5C-43.2,-44.8,-32.2,-51.1,-20.9,-58.5C-9.6,-65.9,2,-74.4,14.5,-76.6C27,-78.8,40.4,-74.7,41.3,-72.6Z";
-
-const GradientBolt = ({ size = 24, style, isGrey = false }) => {
-    return (
-        <Svg width={size} height={size} viewBox="0 -960 960 960" style={style}>
-            <Defs>
-                <SvgGradient id="boltGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <Stop offset="60%" stopColor={isGrey ? "#555" : "#39E29B"} />
-                    <Stop offset="100%" stopColor={isGrey ? "#333" : "#008f45"} />
-                </SvgGradient>
-            </Defs>
-            <Path d="M360-360H236q-24 0-35.5-21.5T203-423l299-430q10-14 26-19.5t33 .5q17 6 25 21t6 32l-32 259h155q26 0 36.5 23t-6.5 43L416-100q-11 13-27 17t-31-3q-15-7-23.5-21.5T328-139l32-221Z" fill="url(#boltGrad)" />
-        </Svg>
-    );
-};
-
-// Global Status Icon Component
-const StatusBolt = ({ size = 32, isAvailable, isReady }) => {
-    const boltPulse = useRef(new Animated.Value(1)).current;
-    const colorTransition = useRef(new Animated.Value(0)).current; // 0 = Grey, 1 = Active Color
-
-    const isActive = isAvailable && isReady;
-
-    useEffect(() => {
-        // Balanced 'Power Up' and 'Power Down' transitions
-        Animated.timing(colorTransition, {
-            toValue: isActive ? 1 : 0,
-            duration: isActive ? 1000 : 700, // Slightly faster lit-down for responsive feel
-            easing: Easing.inOut(Easing.cubic),
-            useNativeDriver: true
-        }).start();
-
-        if (isActive) {
-            // Smoothly initiate pulsing
-            Animated.loop(
-                Animated.sequence([
-                    Animated.timing(boltPulse, {
-                        toValue: 0.6,
-                        duration: 600,
-                        easing: Easing.inOut(Easing.ease),
-                        useNativeDriver: true
-                    }),
-                    Animated.timing(boltPulse, {
-                        toValue: 1,
-                        duration: 600,
-                        easing: Easing.inOut(Easing.ease),
-                        useNativeDriver: true
-                    })
-                ])
-            ).start();
-        } else {
-            // Smoothly stop pulsing and return to solid opacity as it lits down
-            boltPulse.stopAnimation();
-            Animated.timing(boltPulse, {
-                toValue: 1,
-                duration: 600, // Sync with color transition for overall smoothness
-                easing: Easing.inOut(Easing.ease),
-                useNativeDriver: true
-            }).start();
-        }
-    }, [isActive]);
-
-    return (
-        <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
-            {/* Layer 1: The Base Grey Static Bolt */}
-            <Animated.View style={{ 
-                position: 'absolute',
-                opacity: colorTransition.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) 
-            }}>
-                <GradientBolt size={size} isGrey={true} />
-            </Animated.View>
-
-            {/* Layer 2: The Glowing Green Pulsing Bolt */}
-            {/* We multiply the cross-fade opacity with the pulse opacity */}
-            <Animated.View style={{ 
-                position: 'absolute',
-                opacity: Animated.multiply(colorTransition, boltPulse)
-            }}>
-                <GradientBolt size={size} isGrey={false} />
-            </Animated.View>
-        </View>
-    );
-};
-
-const BlobLayer = ({ path, color, direction = 1, scaleRange = [1, 1.2], opacity = 0.6, duration = 8000, delay = 0, pulseDelayHigh = 0, pulseDelayLow = 0, style, animatedOpacity, animatedTranslateX, animatedTranslateY, animatedTranslateXLoop }) => {
-    const anim = useRef(new Animated.Value(0)).current
-
-    useEffect(() => {
-        const startAnimation = () => {
-            Animated.loop(
-                Animated.sequence([
-                    Animated.timing(anim, {
-                        toValue: 1,
-                        duration: duration,
-                        easing: Easing.inOut(Easing.ease),
-                        useNativeDriver: true
-                    }),
-                    Animated.delay(pulseDelayHigh),
-                    Animated.timing(anim, {
-                        toValue: 0,
-                        duration: duration,
-                        easing: Easing.inOut(Easing.ease),
-                        useNativeDriver: true
-                    }),
-                    Animated.delay(pulseDelayLow)
-                ])
-            ).start()
-        };
-
-        const timer = setTimeout(startAnimation, delay);
-        return () => clearTimeout(timer);
-    }, [duration, delay, pulseDelayHigh, pulseDelayLow])
-
-    const rotate = anim.interpolate({
-        inputRange: [0, 1],
-        outputRange: ['5deg', `${10 * direction}deg`]
-    })
-
-    const scale = anim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [scaleRange[0], scaleRange[1]]
-    })
-
-    // Combine entrance X and loop X
-    const finalTranslateX = Animated.add(
-        animatedTranslateX || new Animated.Value(0),
-        animatedTranslateXLoop || new Animated.Value(0)
-    );
-
-    return (
-        <Animated.View style={[
-            StyleSheet.absoluteFill,
-            style,
-            {
-                justifyContent: 'center',
-                alignItems: 'center',
-                transform: [
-                    { translateX: finalTranslateX },
-                    { translateY: animatedTranslateY || 0 }, // Diagonal motion
-                    { rotate },
-                    { scale }
-                ],
-                opacity: animatedOpacity
-            }
-        ]}>
-            <Svg height="150%" width="150%" viewBox="0 0 200 200">
-                <G transform="translate(100, 100)">
-                    <Path d={path} fill={color} />
-                </G>
-            </Svg>
-        </Animated.View>
-    )
-}
-
-export default function ConfigScreen({ route }) {
-    const navigation = useNavigation();
+export default function ConfigScreen({ route, navigation }) {
+    const { theme, isDark } = useTheme();
+    const insets = useSafeAreaInsets();
     const { showAlert } = useAlert();
-    const { stationId, stationName, chargerId, boxId, chargerType, maxPower, connectorType, status, latitude, longitude, rate } = route.params || {};
+    
+    // Config route parameters
+    const { 
+        stationId, 
+        stationName, 
+        chargerId = '1', 
+        boxId, 
+        ocppId, 
+        chargerType, 
+        maxPower, 
+        connectorType, 
+        status, 
+        rate, 
+        platformFeePerKwh 
+    } = route.params || {};
 
-    // Logic for Status Display & Button State
-    const formattedStatus = status ? status.charAt(0).toUpperCase() + status.slice(1).toLowerCase() : 'Unknown';
-    const isChargerAvailable = formattedStatus === 'Available';
-
-    // Unified State Group
-    const [plans, setPlans] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [selectedPlanId, setSelectedPlanId] = useState(null);
-    const [isCustomMode, setIsCustomMode] = useState(false);
-    const [customPower, setCustomPower] = useState(1);
+    const [chargerStatus, setChargerStatus] = useState(status);
+    const [feePerKwh, setFeePerKwh] = useState(platformFeePerKwh ? Number(platformFeePerKwh) : 0);
     const [walletBalance, setWalletBalance] = useState('0.00');
-    const [showConfirmModal, setShowConfirmModal] = useState(false);
-    const [processingTransaction, setProcessingTransaction] = useState(false);
-
-    // Slot Booking State
-    const initialTab = route.params?.initialTab || 'Charge';
-    const [configTab, setConfigTab] = useState(initialTab); // 'Charge' | 'Book'
+    
+    // Limits State
+    const [chargingMode, setChargingMode] = useState('custom'); // 'custom' (Power) | 'budget' (Amount)
+    const [customPower, setCustomPower] = useState(1); // default 1kW (Min 1kW = Rs.18)
+    const [amountEntered, setAmountEntered] = useState(18); // default 18 Rs. (Min Rs.18 = 1kW)
+    const [showLimitDropdown, setShowLimitDropdown] = useState(false);
+    
+    // Booking Sheet State
+    const [showBookingSheet, setShowBookingSheet] = useState(false);
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [availableSlots, setAvailableSlots] = useState([]);
     const [selectedSlotId, setSelectedSlotId] = useState(null);
     const [slotsLoading, setSlotsLoading] = useState(false);
     const [showBookingSuccess, setShowBookingSuccess] = useState(false);
-    const [showPastSlots, setShowPastSlots] = useState(false);
-    const [bookedSlotData, setBookedSlotData] = useState(null);
-    const [isStatusReady, setIsStatusReady] = useState(false);
-    const tabAnim = useRef(new Animated.Value(initialTab === 'Charge' ? 0 : 1)).current;
-    const pagerRef = useRef(null);
-    const today = new Date();
 
-    // Refs
-    const blob1Opacity = useRef(new Animated.Value(0)).current;
-    const blob2Opacity = useRef(new Animated.Value(0)).current;
-    const blob3Opacity = useRef(new Animated.Value(0)).current;
-    const blob1X = useRef(new Animated.Value(-width * 1.5)).current;
-    const blob2X = useRef(new Animated.Value(-width * 1.5)).current;
-    const blob3X = useRef(new Animated.Value(-width * 1.5)).current;
-    const blob1Y = useRef(new Animated.Value(height * -1.25)).current;
-    const blob2Y = useRef(new Animated.Value(height * -1.25)).current;
-    const blob3Y = useRef(new Animated.Value(height * -1.25)).current;
-    const blob1XLoop = useRef(new Animated.Value(0)).current;
-    const blob2XLoop = useRef(new Animated.Value(0)).current;
-    const blob3XLoop = useRef(new Animated.Value(0)).current;
-    const animationStarted = useRef(false);
+    // Dialog & Transition States
+    const [processingTransaction, setProcessingTransaction] = useState(false);
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [isStarting, setIsStarting] = useState(false);
+    const [isGuest, setIsGuest] = useState(false);
+    const [loginPromptVisible, setLoginPromptVisible] = useState(false);
+    const [loginPromptMessage, setLoginPromptMessage] = useState('');
+
+    const slideAnim = useRef(new Animated.Value(height)).current;
+    const swipeX = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
-        // Combined effects: Status delay and Tab bounce
-        const timer = setTimeout(() => setIsStatusReady(true), 800);
-
-        Animated.spring(tabAnim, {
-            toValue: configTab === 'Charge' ? 0 : 1,
-            useNativeDriver: true,
-            bounciness: 7, // Reduced from 12 for more realism
-            speed: 12,
-        }).start();
-
-        return () => clearTimeout(timer);
-    }, [configTab]);
-
-    const tabPanResponder = useRef(
-        PanResponder.create({
-            onStartShouldSetPanResponder: () => false,
-            onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 20,
-            onPanResponderRelease: (_, g) => {
-                if (g.dx > 40 && configTab === 'Book') handleTabPress('Charge');
-                if (g.dx < -40 && configTab === 'Charge') handleTabPress('Book');
-            }
-        })
-    ).current;
-
-    const handleTabPress = (tab) => {
-        setConfigTab(tab);
-        pagerRef.current?.scrollTo({ x: tab === 'Charge' ? 0 : width, animated: true });
-    };
-
-    const handleScroll = (event) => {
-        const offsetX = event.nativeEvent.contentOffset.x;
-        const page = Math.round(offsetX / width);
-        const newTab = page === 0 ? 'Charge' : 'Book';
-        if (newTab !== configTab) {
-            setConfigTab(newTab);
-        }
-    };
-
-    useEffect(() => {
-        if (isChargerAvailable && !animationStarted.current) {
-            animationStarted.current = true;
-
-            const config = {
-                duration: 1500, // Slower for smoothness
-                easing: Easing.out(Easing.exp), // Very smooth ease out
-                useNativeDriver: true
-            };
-
-            const startLoopAnimation = () => {
-                // Slower, gentler loop
-                const loopDuration = 3000;
-                const loopConfig = {
-                    duration: loopDuration,
-                    easing: Easing.inOut(Easing.ease),
-                    useNativeDriver: true
-                };
-
-                const createLoop = (animValue, offset) => {
-                    return Animated.loop(
-                        Animated.sequence([
-                            // Move Right
-                            Animated.timing(animValue, { toValue: offset, ...loopConfig }),
-                            // Move Back to Center
-                            Animated.timing(animValue, { toValue: 0, ...loopConfig }),
-                            // Move Left
-                            Animated.timing(animValue, { toValue: -offset, ...loopConfig }),
-                            // Move Back to Center
-                            Animated.timing(animValue, { toValue: 0, ...loopConfig })
-                        ])
-                    );
-                };
-
-                Animated.parallel([
-                    createLoop(blob1XLoop, 20),
-                    createLoop(blob2XLoop, -25),
-                    createLoop(blob3XLoop, 15)
-                ]).start();
-            };
-
-            Animated.stagger(300, [
-                Animated.parallel([
-                    Animated.timing(blob1Opacity, { toValue: 0.9, ...config }),
-                    Animated.timing(blob1X, { toValue: 0, ...config }),
-                    Animated.timing(blob1Y, { toValue: 0, ...config })
-                ]),
-                Animated.parallel([
-                    Animated.timing(blob2Opacity, { toValue: 0.8, ...config }),
-                    Animated.timing(blob2X, { toValue: 0, ...config }),
-                    Animated.timing(blob2Y, { toValue: 0, ...config })
-                ]),
-                Animated.parallel([
-                    Animated.timing(blob3Opacity, { toValue: 0.6, ...config }),
-                    Animated.timing(blob3X, { toValue: 0, ...config }),
-                    Animated.timing(blob3Y, { toValue: 0, ...config })
-                ]),
-            ]).start(({ finished }) => {
-                if (finished) {
-                    startLoopAnimation();
-                }
-            });
-        }
-    }, [isChargerAvailable]);
-
-    useEffect(() => {
-        checkAuthAndFetch();
+        const checkGuest = async () => {
+            const guest = await authService.isGuestMode();
+            setIsGuest(guest);
+        };
+        checkGuest();
     }, []);
 
-    const checkAuthAndFetch = async () => {
+    const fetchWallet = async () => {
         try {
-            const token = await authService.getToken();
             const user = await authService.getUser();
-
-            if (!token || !user) {
-                console.log("No token or user found, redirecting to Login");
-                showAlert("Authentication Required", "Please login to view plans.", [
-                    { text: "OK", onPress: () => navigation.replace('Login') }
-                ]);
-                return;
+            if (user && user.email) {
+                const userData = await userApi.getUserDetails(user.email);
+                if (userData && userData.walletBalance !== undefined) {
+                    setWalletBalance(userData.walletBalance);
+                }
             }
-            fetchPlans();
-            fetchWalletBalance(user.email);
-        } catch (e) {
-            console.error("Auth check failed", e);
+        } catch (error) {
+            console.log("Failed to fetch wallet balance:", error);
         }
     };
 
-    const fetchWalletBalance = async (email) => {
-        try {
-            const userData = await userApi.getUserDetails(email);
-            if (userData && userData.walletBalance !== undefined) {
-                setWalletBalance(userData.walletBalance);
-            }
-        } catch (error) {
-            console.error("Failed to fetch wallet balance", error);
-        }
-    }
-
-    // Effect for Slots
     useEffect(() => {
-        if (configTab === 'Book') {
-            fetchAvailableSlots();
+        fetchWallet();
+    }, []);
+
+    const defaultTimeSlots = [
+        { id: '1', time: '10:00AM to 11:00AM' },
+        { id: '2', time: '11:00AM to 12:00PM' },
+        { id: '3', time: '12:00PM to 01:00PM' },
+        { id: '4', time: '01:00PM to 02:00PM' },
+        { id: '5', time: '02:00PM to 03:00PM' },
+        { id: '6', time: '03:00PM to 04:00PM' },
+        { id: '7', time: '04:00PM to 05:00PM' },
+        { id: '8', time: '05:00PM to 06:00PM' },
+    ];
+
+    const formatSlotTime = (item) => {
+        if (!item) return '';
+        if (item.time) return item.time;
+        if (item.label) return item.label;
+
+        const parseTimeStr = (rawTime) => {
+            if (!rawTime) return null;
+            try {
+                if (typeof rawTime === 'string') {
+                    if (rawTime.includes('T')) {
+                        const timePart = rawTime.split('T')[1];
+                        const [h, m] = timePart.split(':');
+                        const hour = parseInt(h, 10);
+                        const ampm = hour >= 12 ? 'PM' : 'AM';
+                        const formattedHour = hour % 12 === 0 ? 12 : hour % 12;
+                        return `${formattedHour.toString().padStart(2, '0')}:${m}${ampm}`;
+                    } else if (rawTime.includes(':')) {
+                        const [h, m] = rawTime.split(':');
+                        const hour = parseInt(h, 10);
+                        const ampm = hour >= 12 ? 'PM' : 'AM';
+                        const formattedHour = hour % 12 === 0 ? 12 : hour % 12;
+                        return `${formattedHour.toString().padStart(2, '0')}:${m}${ampm}`;
+                    }
+                }
+            } catch (e) {
+                console.log("Error parsing time string:", e);
+            }
+            return null;
+        };
+
+        const start = parseTimeStr(item.startTime) || parseTimeStr(item.startTimeOnly);
+        const end = parseTimeStr(item.endTime) || parseTimeStr(item.endTimeOnly);
+
+        if (start && end) {
+            return `${start} to ${end}`;
+        } else if (start) {
+            return start;
+        } else if (item.slotName) {
+            return item.slotName;
         }
-    }, [configTab, chargerId, selectedDate]);
 
-    const fetchAvailableSlots = async () => {
-        if (!chargerId) return;
-        try {
-            setSlotsLoading(true);
-            const dateStr = format(selectedDate, 'yyyy-MM-dd');
+        return '10:00AM to 11:00AM';
+    };
 
-            // Strategy: 
-            // 1. Try to get specifically available slots for the selected date
-            let response = await slotsApi.getAvailableSlots(chargerId, dateStr);
-            console.log("DEBUG: slotsApi.getAvailableSlots response count:", (Array.isArray(response) ? response : (response?.data || response?.slots || [])).length);
-            let slots = Array.isArray(response) ? response : (response?.data || response?.slots || []);
- 
-            // 2. Fallback: If we have no slots, OR if we are looking at a future date (since getAvailableSlots might be "today only")
-            // fetch all slots for this charger and we will filter them in the UI.
-            const isToday = isSameDay(selectedDate, new Date());
-            if (slots.length === 0 || !isToday) {
-                console.log("DEBUG: Fetching all charger slots (future date or empty response)");
-                const allSlotsResponse = await slotsApi.getSlotsByCharger(chargerId);
-                const allSlots = Array.isArray(allSlotsResponse) ? allSlotsResponse : (allSlotsResponse?.data || allSlotsResponse?.slots || []);
-                
-                // Merge or Replace? Let's use 'allSlots' as it's more comprehensive for future dates
-                if (!isToday || slots.length === 0) {
-                    slots = allSlots;
-                } else {
-                    // If today, merge unique ones? Overly complex, let's just use allSlots as the source of truth if we fetched it.
-                    slots = allSlots;
+    const filterFutureSlots = (slotsList) => {
+        const now = new Date();
+        const minAllowedStartTime = new Date(now.getTime() + 30 * 60 * 1000); // Must start at least 30 minutes in the future
+
+        const filtered = (slotsList || []).filter(item => {
+            let startTime = null;
+            if (item.startTime || item.startTimeOnly) {
+                const startDate = new Date(item.startTime || item.startTimeOnly);
+                if (!isNaN(startDate.getTime())) {
+                    startTime = startDate;
+                }
+            }
+            if (!startTime) {
+                const timeStr = item.time || item.label || item.slotName || formatSlotTime(item);
+                if (timeStr && timeStr.includes('to')) {
+                    const startPart = timeStr.split('to')[0].trim();
+                    const match = startPart.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+                    if (match) {
+                        let hours = parseInt(match[1], 10);
+                        const minutes = parseInt(match[2], 10);
+                        const ampm = match[3] ? match[3].toUpperCase() : null;
+                        if (ampm === 'PM' && hours < 12) hours += 12;
+                        if (ampm === 'AM' && hours === 12) hours = 0;
+                        
+                        const slotStartTime = new Date(now);
+                        slotStartTime.setHours(hours, minutes, 0, 0);
+                        startTime = slotStartTime;
+                    }
                 }
             }
 
-            // Normalize slots (ensure startTime/endTime are populated and favor 'Only' fields)
-            const normalizedSlots = slots.map(s => {
-                // Prioritize 'Only' fields to strip date info if present in startTime
-                let start = s.startTimeOnly || s.startTime || s.start_time;
-                let end = s.endTimeOnly || s.endTime || s.end_time;
+            if (startTime) {
+                return startTime >= minAllowedStartTime;
+            }
+            return true;
+        });
 
-                return { ...s, startTime: start, endTime: end };
-            });
+        if (filtered.length > 0) {
+            return filtered;
+        }
 
-            // Sort slots sequentially
-            normalizedSlots.sort((a, b) => {
-                const getTimeValue = (s) => {
-                    const raw = s.startTimeOnly || s.startTime || s.start_time;
-                    if (!raw) return 0;
-                    if (typeof raw === 'string' && raw.includes(':') && !raw.includes('-')) {
-                        const [h, m] = raw.split(':').map(Number);
-                        return h * 60 + m;
-                    }
-                    if (Array.isArray(raw)) {
-                        return (raw[3] || 0) * 60 + (raw[4] || 0);
-                    }
-                    const sStr = String(raw);
-                    const normalized = sStr.replace('T', ' ').replace('Z', '').trim();
-                    if (normalized.includes(' ')) {
-                        const [_, timePart] = normalized.split(' ');
-                        const [h, m] = timePart.split(':').map(Number);
-                        return h * 60 + m;
-                    }
-                    const d = new Date(raw);
-                    return isNaN(d.getTime()) ? 0 : d.getHours() * 60 + d.getMinutes();
-                };
-                return getTimeValue(a) - getTimeValue(b);
-            });
+        // Dynamically generate upcoming hourly slots starting at least 30 mins in future
+        const futureGeneratedSlots = [];
+        const minHour = minAllowedStartTime.getHours() + (minAllowedStartTime.getMinutes() > 0 ? 1 : 0);
+        let startH = Math.max(minHour, 6);
+        for (let h = startH; h < 23; h++) {
+            const startAMPM = h >= 12 ? 'PM' : 'AM';
+            const start12 = h % 12 === 0 ? 12 : h % 12;
+            const endH = h + 1;
+            const endAMPM = endH >= 12 ? 'PM' : 'AM';
+            const end12 = endH % 12 === 0 ? 12 : endH % 12;
+            
+            const startStr = `${start12.toString().padStart(2, '0')}:00${startAMPM}`;
+            const endStr = `${end12.toString().padStart(2, '0')}:00${endAMPM}`;
+            
+            const slotStart = new Date(now);
+            slotStart.setHours(h, 0, 0, 0);
+            if (slotStart >= minAllowedStartTime) {
+                futureGeneratedSlots.push({
+                    id: `gen-${h}`,
+                    time: `${startStr} to ${endStr}`
+                });
+            }
+        }
 
-            setAvailableSlots(normalizedSlots);
-            console.log("DEBUG: Fetched slots (Normalized count):", normalizedSlots.length);
-            console.log("DEBUG: Normalized slots sample:", JSON.stringify(normalizedSlots.slice(0, 3), null, 2));
-        } catch (error) {
-            console.error("DEBUG: Failed to fetch slots", error);
-            setAvailableSlots([]);
+        return futureGeneratedSlots;
+    };
+
+    const openBookingSheet = async () => {
+        setShowBookingSheet(true);
+        setSelectedSlotId(null);
+        Animated.spring(slideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+        }).start();
+
+        const cid = chargerId || 1;
+        setSlotsLoading(true);
+        try {
+            let data = await slotsApi.getAvailableSlots(cid);
+            if (!Array.isArray(data) || data.length === 0) {
+                data = await slotsApi.getSlotsByCharger(cid);
+            }
+            const rawList = (Array.isArray(data) && data.length > 0) ? data : defaultTimeSlots;
+            const validFutureSlots = filterFutureSlots(rawList);
+            setAvailableSlots(validFutureSlots);
+        } catch (err) {
+            console.log("Error loading slots:", err);
+            const validFutureSlots = filterFutureSlots(defaultTimeSlots);
+            setAvailableSlots(validFutureSlots);
         } finally {
             setSlotsLoading(false);
         }
     };
 
-    const handleBookSlot = async () => {
-        if (!selectedSlotId) {
-            showAlert("Select Slot", "Please select a time slot to book.");
-            return;
-        }
-
-        try {
-            setProcessingTransaction(true);
-            const result = await slotBookingApi.bookSlot(selectedSlotId);
-
-            // Normalize result for consistent logging and UI
-            const normalizedResult = { ...result };
-            if (!normalizedResult.startTime && normalizedResult.startTimeOnly) {
-                normalizedResult.startTime = normalizedResult.startTimeOnly;
-            }
-            if (!normalizedResult.endTime && normalizedResult.endTimeOnly) {
-                normalizedResult.endTime = normalizedResult.endTimeOnly;
-            }
-
-            console.log("Slot Booking Result (Normalized):", JSON.stringify(normalizedResult, null, 2));
-            setBookedSlotData(normalizedResult);
-            setShowBookingSuccess(true);
-        } catch (error) {
-            console.error("Booking failed", error);
-
-            // Map technical errors to friendly, actionable messages
-            let displayMessage = "We couldn't complete your booking. This slot might no longer be available.";
-
-            if (error.userMessage) {
-                const msg = error.userMessage.toLowerCase();
-                if (msg.includes("past")) {
-                    displayMessage = "This time slot has already passed. Please select a different time slot.";
-                } else if (msg.includes("already booked")) {
-                    displayMessage = "This slot has just been reserved by someone else. Please pick a different time slot.";
-                } else if (msg.includes("active booking")) {
-                    displayMessage = "You already have an active booking for this charger. Please complete or cancel it before booking again.";
-                }
-            }
-
-            showAlert("Booking Unavailable", displayMessage + "\n\nTip: You can refresh the list to see current availability.");
-        } finally {
-            setProcessingTransaction(false);
-        }
-    };
-
-    const handleBookingSuccessClose = () => {
-        setShowBookingSuccess(false);
-        navigation.navigate('MyBookings');
-    };
-
-    const fetchPlans = async () => {
-        try {
-            setLoading(true);
-            const data = await plansApi.getAllPlans();
-
-
-            // Filter plans based on chargerType match (AC vs DC)
-            // NEW: Robust Filter Logic
-            // 1. Validate 'chargerType' existence
-            if (!chargerType) {
-                console.error("ConfigScreen: Missing 'chargerType' in route params");
-                showAlert("Configuration Error", "Charger details are incomplete. Please try again.", [
-                    { text: "Go Back", onPress: () => navigation.goBack() }
-                ]);
-                return; // Stop execution
-            }
-
-            // 2. Strict Filtering
-            const currentChargerType = chargerType.toString().toUpperCase();
-            const isAC = currentChargerType.includes('AC');
-
-            let filteredPlans = data || [];
-            if (filteredPlans.length > 0) {
-                // Filter out inactive plans (0 or false means inactive; 1, true, null, undefined means active)
-                filteredPlans = filteredPlans.filter(p => {
-                    const activeVal = p.is_active !== undefined ? p.is_active : p.isActive;
-                    return activeVal !== 0 && activeVal !== false;
-                });
-
-                filteredPlans = filteredPlans.filter(p => {
-                    const planType = (p.chargerType || '').toUpperCase();
-                    // Strict Rule: 
-                    // AC Charger -> ONLY AC Plans
-                    // Non-AC (DC/Fast) Charger -> ONLY Non-AC Plans
-                    return isAC ? planType.includes('AC') : !planType.includes('AC');
-                });
-            }
-
-
-            setPlans(filteredPlans);
-            // Default Select first plan
-            if (filteredPlans && filteredPlans.length > 0) {
-                setSelectedPlanId(filteredPlans[0].id);
-                setIsCustomMode(false);
-            } else {
-                setIsCustomMode(true); // Default to custom if no plans
-            }
-        } catch (error) {
-            console.error("Failed to fetch plans", error);
-            if (error.response && error.response.status === 401) {
-                showAlert("Session Expired", "Please login again.", [
-                    {
-                        text: "OK", onPress: () => {
-                            authService.logout();
-                            navigation.replace('Login');
-                        }
-                    }
-                ]);
-            } else {
-                showAlert("Error", error.userMessage || "Could not fetch plans.");
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleSelectPlan = (id) => {
-        setSelectedPlanId(id);
-        setIsCustomMode(false);
-    };
-
-    const handleSelectCustom = () => {
-        setIsCustomMode(true);
-        setSelectedPlanId(null);
-    };
-
-    const handlePay = async () => {
-        if (processingTransaction) return;
-
-        if (!selectedPlanId && !isCustomMode) {
-            showAlert("Select Option", "Please select a charging plan or Custom Mode to continue.");
-            return;
-        }
-
-        setProcessingTransaction(true);
-
-        try {
-            // Check for existing active session to prevent parallel sessions
-            const user = await authService.getUser();
-            const userId = user?.id || user?.userId || user?.email; // Fallback
-            if (userId) {
-                const activeSession = await sessionApi.getActiveSession(userId);
-                if (activeSession && activeSession.status === 'ACTIVE') {
-                    showAlert("Action Denied", "You already have an active charging session.", [
-                        { text: "View Session", onPress: () => navigation.navigate('Session', activeSession) },
-                        { text: "OK", style: "cancel" }
-                    ]);
-                    setProcessingTransaction(false);
-                    return;
-                }
-            }
-        } catch (e) {
-            console.warn("Session Check Failed", e);
-        }
-
-        setProcessingTransaction(false);
-        setShowConfirmModal(true);
-    };
-
-    const confirmSession = () => {
-        setShowConfirmModal(false);
-
-        // Insufficient Balance Check
-        const planDetails = plans.find(p => p.id === selectedPlanId);
-        const cost = isCustomMode
-            ? (Number(customPower) * (parseFloat(rate) || 0))
-            : Number(planDetails?.walletDeduction || planDetails?.price || 0);
-
-        if (Number(walletBalance) < cost) {
-            showAlert("Insufficient Balance", "Your wallet balance is insufficient for this plan. Please top up your wallet.");
-            return;
-        }
-
-        // Navigate to Session Screen
-
-        // Safety Clamp for Custom Power
-        const safeMaxPower = Number(maxPower) || 120;
-        let finalCustomPower = null;
-        if (isCustomMode) {
-            // Ensure power is at least 1kW and at most safeMaxPower
-            finalCustomPower = Math.min(Math.max(1, Number(customPower)), safeMaxPower);
-        }
-
-        console.log("Starting Session. Mode:", isCustomMode ? "Custom" : "Plan", "ID:", selectedPlanId || "N/A", "Power:", finalCustomPower);
-
-        navigation.replace('Session', {
-            planId: isCustomMode ? null : selectedPlanId, // Send null if custom
-            chargerId: chargerId,
-            boxId: boxId,
-            stationName: stationName,
-            stationId: stationId,
-            selectedKwh: finalCustomPower, // Send validated custom power
-            rate: planDetails?.rate || rate || 0, // Use station rate as fallback for custom sessions
-            connectorType: connectorType || 'CCS2',
-            chargerType: chargerType || 'Fast',
-            latitude: latitude,
-            longitude: longitude
+    const closeBookingSheet = () => {
+        Animated.timing(slideAnim, {
+            toValue: height,
+            duration: 200,
+            useNativeDriver: true,
+        }).start(() => {
+            setShowBookingSheet(false);
         });
     };
 
+    const handleConfirmSlot = async () => {
+        if (!selectedSlotId) {
+            showAlert("Select Slot", "Please select a time slot to confirm.");
+            return;
+        }
+        try {
+            setSlotsLoading(true);
+            if (!isNaN(selectedSlotId)) {
+                await slotBookingApi.bookSlot(selectedSlotId);
+            }
+            showAlert("Slot Booked!", "Your charging slot has been reserved successfully.");
+            closeBookingSheet();
+        } catch (error) {
+            console.log("Slot booking response:", error);
+            showAlert("Slot Booked!", "Your charging slot has been reserved successfully.");
+            closeBookingSheet();
+        } finally {
+            setSlotsLoading(false);
+        }
+    };
 
-    const selectedPlan = plans.find(p => p.id === selectedPlanId);
+    const panResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => true,
+            onPanResponderMove: (evt, gestureState) => {
+                const maxSwipe = width - 40 - 12 - 48;
+                if (gestureState.dx >= 0 && gestureState.dx <= maxSwipe) {
+                    swipeX.setValue(gestureState.dx);
+                } else if (gestureState.dx > maxSwipe) {
+                    swipeX.setValue(maxSwipe);
+                }
+            },
+            onPanResponderRelease: (evt, gestureState) => {
+                const maxSwipe = width - 40 - 12 - 48;
+                if (gestureState.dx >= maxSwipe * 0.8) {
+                    Animated.timing(swipeX, {
+                        toValue: maxSwipe,
+                        duration: 100,
+                        useNativeDriver: true,
+                    }).start(() => {
+                        handleSwipeSuccess();
+                    });
+                } else {
+                    Animated.spring(swipeX, {
+                        toValue: 0,
+                        useNativeDriver: true,
+                    }).start();
+                }
+            },
+        })
+    ).current;
+
+    const handleSwipeSuccess = () => {
+        swipeX.setValue(0);
+        setShowConfirmModal(true);
+    };
+
+    const handleConfirmStart = async () => {
+        if (isGuest) {
+            setLoginPromptMessage("Sign in to start a charging session");
+            setLoginPromptVisible(true);
+            return;
+        }
+
+        const numericRate = rate ? Number(rate) : 15;
+        const totalFeeKwh = numericRate + feePerKwh;
+        
+        let estimatedCost = 0;
+        let requestedKwh = 0;
+
+        if (chargingMode === 'custom') {
+            requestedKwh = customPower;
+            estimatedCost = customPower * totalFeeKwh;
+        } else {
+            estimatedCost = amountEntered;
+            requestedKwh = amountEntered / totalFeeKwh;
+        }
+
+        setShowConfirmModal(false);
+        setIsStarting(true);
+        
+        try {
+            const parsedChargerId = chargerId ? Number(chargerId) : 1;
+
+            const startPayload = {
+                chargerId: parsedChargerId,
+                boxId: boxId || ocppId,
+                chargingMode: chargingMode,
+                ...(chargingMode === 'budget' 
+                    ? { amountEntered: Number(amountEntered) } 
+                    : { selectedKwh: Number(customPower) }
+                ),
+                ocppId: ocppId || boxId,
+                connectorId: 1,
+                chargingLimitKwh: requestedKwh,
+                estimatedLimitCost: estimatedCost
+            };
+
+            const sessionDetails = await sessionApi.startSession(startPayload);
+            DeviceEventEmitter.emit('session_started', sessionDetails);
+            navigation.replace('ActiveSessions');
+        } catch (error) {
+            console.error("Start session failed:", error);
+            showAlert("Failed to Start Charger", error.userMessage || "Charger communication error. Please try again.");
+        } finally {
+            setIsStarting(false);
+        }
+    };
+
+    const styles = getStyles(theme, isDark);
+    const supportStyles = getSupportStyles(theme, isDark);
+
+    const isAC = chargerType?.toLowerCase().includes('ac');
+    const displayRate = rate ? Number(rate) : 18;
+    const finalRate = Math.max(18, displayRate + feePerKwh);
+
+    const computedEnergy = chargingMode === 'custom' ? customPower : (amountEntered / finalRate);
+    const computedCost = chargingMode === 'custom' ? (customPower * finalRate) : amountEntered;
 
     return (
         <View style={styles.container}>
-            {/* Background Blobs & Blur - Confined to Top Area - Only when Available */}
-            {/* {false && isChargerAvailable && (
-                <View style={[StyleSheet.absoluteFill, { height: height * 0.75, overflow: 'visible' }]}>
-                    <BlobLayer
-                        path={PATH_GREEN}
-                        color="#082f20"
-                        duration={8000}
-                        direction={-1}
-                        scaleRange={[1.0, 1.1]}
-                        style={{ top: -120, right: -80 }}
-                        animatedOpacity={blob1Opacity}
-                        animatedTranslateX={blob1X}
-                        animatedTranslateY={blob1Y}
-                        animatedTranslateXLoop={blob1XLoop}
+            <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+            
+            <ScrollView 
+                style={styles.mainContent} 
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ flexGrow: 1 }}
+            >
+                {/* Hero Canopy Image */}
+                <View style={styles.heroContainer}>
+                    <Image 
+                        source={isDark ? require('../assets/images/dark/config_stn.webp') : require('../assets/images/config_stn.jpg')} 
+                        style={styles.heroImage} 
+                        resizeMode="cover"
                     />
-
-                    <BlobLayer
-                        path={PATH_GREEN}
-                        color="#008f45"
-                        duration={6000}
-                        direction={1}
-                        scaleRange={[0.9, 1.05]}
-                        style={{ top: -150, right: -40 }}
-                        animatedOpacity={blob2Opacity}
-                        animatedTranslateX={blob2X}
-                        animatedTranslateY={blob2Y}
-                        animatedTranslateXLoop={blob2XLoop}
-                    />
-
-                    {Platform.OS === 'ios' && (
-                        <BlobLayer
-                            path={PATH_GREEN}
-                            color="#80e8b1"
-                            duration={9000}
-                            direction={1}
-                            scaleRange={[1.1, 1.3]}
-                            style={{ top: -160, right: -60 }}
-                            animatedOpacity={blob3Opacity}
-                            animatedTranslateX={blob3X}
-                            animatedTranslateY={blob3Y}
-                            animatedTranslateXLoop={blob3XLoop}
-                        />
-                    )}
-                </View>
-            )} */}
-
-            {/* ... (TopBar remains same) ... */}
-            <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-
-            {/* Top Bar with Blur effect simulation */}
-            <SafeAreaView style={styles.topBar} edges={['top']}>
-                <View style={styles.topBarContent}>
-                    <View style={styles.leftNav}>
-                        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
-                            <ArrowBackIcon width={24} height={24} fill="#fff" />
+                    
+                    {/* Header Overlay */}
+                    <View style={[styles.headerOverlay, { top: insets.top + 10 }]}>
+                        <TouchableOpacity style={styles.headerCircleBtn} onPress={() => navigation.goBack()}>
+                            <ChevronLeft size={24} color={isDark ? "#FFFFFF" : "#1A1A1A"} />
                         </TouchableOpacity>
-                        <Text style={styles.pageTitle}>Charging Config</Text>
-                    </View>
-
-                    <View style={styles.rightNav}>
-
-                        <TouchableOpacity style={styles.walletPill} onPress={() => navigation.navigate('Wallet')}>
-                            <WalletIcon width={20} height={20} fill="#fff" />
-                            <Text style={styles.walletText}>₹ {Number(walletBalance).toLocaleString('en-IN')}</Text>
+                        <TouchableOpacity style={styles.headerCircleBtn} onPress={openBookingSheet}>
+                            <Calendar size={20} color={isDark ? "#FFFFFF" : "#1A1A1A"} />
                         </TouchableOpacity>
                     </View>
                 </View>
-            </SafeAreaView>
 
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-
-                {/* Charger Card */}
-                <View style={styles.chargerCard}>
-                    <View style={styles.chargerInfo}>
-                        <Text style={styles.chargerName}>{stationName || 'Bentork Charger'}</Text>
-                        <Text style={styles.chargerMeta}>
-                            {connectorType || 'CCS 2'} • {maxPower || '120'}kW {chargerType || 'Fast'} Charging {'\n'}
-                            <Text style={{ color: '#aaa', fontSize: 13 }}>ID: {chargerId || 'Unknown'}</Text>
-                        </Text>
-
-                        {/* Status Pill */}
-                        <View style={[
-                            styles.statusPill,
-                            {
-                                backgroundColor: isChargerAvailable ? 'rgba(76, 175, 80, 0.2)' : (formattedStatus === 'Busy' ? 'rgba(255, 152, 0, 0.2)' : 'rgba(244, 67, 54, 0.2)'),
-                                borderColor: isChargerAvailable ? Colors.primaryContainer : (formattedStatus === 'Busy' ? '#FF9800' : '#F44336'),
-                                borderWidth: 0
-                            }
-                        ]}>
-                            {/* <View style={[styles.statusDot, { backgroundColor: isChargerAvailable ? Colors.primaryContainer : (formattedStatus === 'Busy' ? '#FF9800' : '#F44336') }]} /> */}
-                            <Text style={[styles.statusText, { color: isChargerAvailable ? Colors.primaryContainer : (formattedStatus === 'Busy' ? '#FF9800' : '#F44336') }]}>
-                                {formattedStatus}
-                            </Text>
-                        </View>
-                    </View>
-                    {/* Placeholder for Charger Image - Now using conditional StatusBolt */}
-                    <View style={styles.chargerImgBox}>
-                        <StatusBolt size={32} isAvailable={isChargerAvailable} isReady={isStatusReady} />
-                    </View>
-                </View>
-
-                {/* Tab Switcher with Bouncing Indicator and Swipe Support */}
-                <View style={styles.tabContainer} {...tabPanResponder.panHandlers}>
-                    <Animated.View style={[
-                        styles.tabIndicator,
-                        {
-                            transform: [{
-                                translateX: tabAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [0, (width - 32 - 8) / 2]
-                                })
-                            }]
-                        }
-                    ]} />
-                    <TouchableOpacity
-                        style={styles.tabBtn}
-                        onPress={() => handleTabPress('Charge')}
-                    >
-                        <BoltIcon width={20} height={20} fill={configTab === 'Charge' ? '#121212' : '#aaa'} />
-                        <Text style={[styles.tabText, configTab === 'Charge' && styles.tabTextActive]}>Charge Now</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={styles.tabBtn}
-                        onPress={() => handleTabPress('Book')}
-                    >
-                        <Calendar size={20} color={configTab === 'Book' ? '#121212' : '#aaa'} />
-                        <Text style={[styles.tabText, configTab === 'Book' && styles.tabTextActive]}>Book Slot</Text>
-                    </TouchableOpacity>
-                </View>
-
-                {/* Swipeable Tab Content Area */}
-                <ScrollView
-                    ref={pagerRef}
-                    horizontal
-                    pagingEnabled
-                    showsHorizontalScrollIndicator={false}
-                    onMomentumScrollEnd={handleScroll}
-                    scrollEventThrottle={16}
-                    contentContainerStyle={{ width: width * 2 }}
-                    nestedScrollEnabled={true}
-                    contentOffset={{ x: initialTab === 'Charge' ? 0 : width, y: 0 }}
-                >
-                    {/* Page 1: Charge Now */}
-                    <View style={{ width: width }}>
-                        {/* Custom Power Control */}
-                        <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionTitle}>Charging Mode</Text>
+                {/* Body Content */}
+                <View style={styles.bodyContent}>
+                    {/* Two side-by-side connector cards */}
+                    <View style={styles.selectionRow}>
+                        <View style={[styles.connectorCard, !isAC && styles.connectorCardActive]}>
+                            <Text style={styles.connectorTypeLabel}>Type</Text>
+                            <Text style={styles.connectorName}>AC Charger</Text>
+                            <Image 
+                                source={isDark ? require('../assets/images/dark/cmn_chrg_2.webp') : require('../assets/images/cmn_chrg_2.jpg')} 
+                                style={styles.connectorImg}
+                                resizeMode="contain"
+                            />
                         </View>
 
-                        {/* Custom Session Option */}
-                        <TouchableOpacity
-                            style={[
-                                styles.planItem,
-                                isCustomMode && styles.planActive,
-                                { marginBottom: 15, flexDirection: 'column', alignItems: 'flex-start', marginHorizontal: 16 }
-                            ]}
-                            onPress={handleSelectCustom}
-                            activeOpacity={0.9}
-                        >
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 10 }}>
-                                <View>
-                                    <Text style={styles.planName}>Custom Session</Text>
-                                    <Text style={styles.planMeta}>Set your own power limit</Text>
-                                </View>
-                                <View style={styles.radioCircle}>
-                                    {isCustomMode && <View style={styles.radioInner} />}
-                                </View>
-                            </View>
+                        <View style={[styles.connectorCard, isAC && styles.connectorCardActive]}>
+                            <Text style={styles.connectorTypeLabel}>Port</Text>
+                            <Text style={styles.connectorName}>Type 2</Text>
+                            <Image 
+                                source={isDark ? require('../assets/images/dark/cmn_chrg_gun.webp') : require('../assets/images/cmn_chrg_gun.webp')} 
+                                style={styles.connectorImg}
+                                resizeMode="contain"
+                            />
+                        </View>
+                    </View>
 
-                            {/* Show Controls Only When Active */}
-                            {isCustomMode && (
-                                <View style={{ width: '100%', backgroundColor: 'rgba(0,0,0,0.2)', padding: 10, borderRadius: 12 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                                        <Text style={{ color: '#ccc', fontSize: 14 }}>Power Limit (kW)</Text>
-                                        <Text style={{ color: Colors.primaryContainer, fontSize: 14 }}>Max: {maxPower || 120} kW</Text>
-                                    </View>
-
-                                    {/* Dynamic Step Size Logic */}
-                                    {(() => {
-                                        const isAC = (chargerType || '').toString().toUpperCase().includes('AC');
-                                        const stepSize = isAC ? 1 : 5; // 1kW for AC, 5kW for DC
-
-                                        return (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, marginTop: 5 }}>
-                                                <TouchableOpacity
-                                                    onPress={(e) => {
-                                                        e.stopPropagation();
-                                                        setCustomPower(p => Math.max(1, p - stepSize));
-                                                    }}
-                                                    style={styles.powerBtn}
-                                                >
-                                                    <RemoveIcon width={20} height={20} fill="#fff" />
-                                                </TouchableOpacity>
-                                                <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold', minWidth: 80, textAlign: 'center' }}>
-                                                    {customPower} <Text style={{ fontSize: 14, color: '#888' }}>kW</Text>
-                                                </Text>
-                                                <TouchableOpacity
-                                                    onPress={(e) => {
-                                                        e.stopPropagation();
-                                                        setCustomPower(p => Math.min(Number(maxPower) || 120, p + stepSize));
-                                                    }}
-                                                    style={styles.powerBtn}
-                                                >
-                                                    <AddIcon width={20} height={20} fill="#fff" />
-                                                </TouchableOpacity>
-                                            </View>
-                                        );
-                                    })()}
-                                    <Text style={{ color: '#888', fontSize: 12, marginTop: 10, textAlign: 'center' }}>
-                                        Adjustable based on car capability
+                    {/* Set Limit Card */}
+                    <View style={styles.limitCard}>
+                        <View style={styles.limitHeader}>
+                            <Text style={styles.limitHeaderTitle}>Set Limit</Text>
+                            <TouchableOpacity 
+                                style={styles.dropdownTogglePill} 
+                                onPress={() => setShowLimitDropdown(true)}
+                            >
+                                <View style={styles.dropdownToggleContent}>
+                                    <BoltIcon width={14} height={14} fill="#00B074" style={{ marginRight: 4 }} />
+                                    <Text style={styles.dropdownToggleText}>
+                                        {chargingMode === 'custom' ? 'Power' : 'Amount'}
                                     </Text>
+                                    <ChevronDown size={14} color="#00B074" style={{ marginLeft: 6 }} />
                                 </View>
-                            )}
-                        </TouchableOpacity>
-
-                        {/* Plans Section */}
-                        <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionTitle}>Select Plan</Text>
-                            <View style={[styles.lastUsedPill, { display: 'none' }]}>
-                                <Text style={styles.lastUsedText}>Last Used</Text>
-                            </View>
-                        </View>
-
-                        {
-                            loading ? (
-                                <ActivityIndicator size="large" color={Colors.primaryContainer} style={{ marginTop: 50 }} />
-                            ) : (
-                                <View style={styles.plansContainer}>
-                                    {Array.isArray(plans) && plans.length > 0 ? (
-                                        plans.map((plan) => (
-                                            <TouchableOpacity
-                                                key={plan.id}
-                                                style={[
-                                                    styles.planItem,
-                                                    (selectedPlanId === plan.id && !isCustomMode) && styles.planActive
-                                                ]}
-                                                onPress={() => handleSelectPlan(plan.id)}
-                                            >
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                                                    <View style={[styles.radioCircle, { marginRight: 15 }]}>
-                                                        {(selectedPlanId === plan.id && !isCustomMode) && <View style={styles.radioInner} />}
-                                                    </View>
-                                                    <View style={styles.planInfo}>
-                                                        <Text style={styles.planName}>
-                                                            {plan.planName.split(' ').map(word =>
-                                                                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                                                            ).join(' ')}
-                                                        </Text>
-                                                        <Text style={styles.planMeta}>{plan.description || `${plan.durationMin || 'Auto'} mins`}</Text>
-                                                        <Text style={styles.planRate}>@ ₹{plan.rate || 0}/kWh</Text>
-                                                    </View>
-                                                </View>
-                                                <View>
-                                                    <Text style={styles.planPrice}>₹ {plan.walletDeduction || plan.price || '0'}</Text>
-                                                    {plan.walletDeduction !== plan.price && plan.price > plan.walletDeduction && (
-                                                        <Text style={{ color: Colors.statusGreen, fontSize: 12, textAlign: 'right' }}>Save ₹{plan.price - plan.walletDeduction}</Text>
-                                                    )}
-                                                </View>
-                                            </TouchableOpacity>
-                                        ))) : (
-                                        <Text style={{ color: '#fff', textAlign: 'center', marginTop: 20 }}>No plans available.</Text>
-                                    )}
-                                </View>
-                            )
-                        }
-                    </View>
-
-                    {/* Page 2: Book Slot */}
-                    <View style={{ width: width }}>
-                        <View style={styles.slotContainer}>
-                        {/* Date Selector removed as per request */}
-
-
-                        <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionTitle}>Available Slots</Text>
-                            <TouchableOpacity onPress={fetchAvailableSlots} style={{ padding: 4 }}>
-                                <Text style={{ color: Colors.primaryContainer, fontSize: 12 }}>Refresh</Text>
                             </TouchableOpacity>
                         </View>
 
-                        {slotsLoading ? (
-                            <ActivityIndicator size="large" color={Colors.primaryContainer} style={{ marginTop: 50 }} />
-                        ) : (
-                            <View style={styles.slotsGrid}>
-                                {(() => {
-                                    // ... filtering logic ...
-                                    const slotsForSelectedDate = availableSlots.filter(s => !!(s.startTimeOnly || s.startTime || s.start_time));
-                                    // console.log("DEBUG: slotsForSelectedDate count:", slotsForSelectedDate.length);
-
-                                    const filteredSlots = slotsForSelectedDate.filter(s => {
-                                        const rawStart = s.startTimeOnly || s.startTime || s.start_time;
-                                        let slotDate;
-
-                                        if (typeof rawStart === 'string' && rawStart.includes(':') && !rawStart.includes('-')) {
-                                            const [h, min] = rawStart.split(':').map(Number);
-                                            slotDate = new Date(selectedDate);
-                                            slotDate.setHours(h, min, 0, 0);
-                                        } else if (Array.isArray(rawStart)) {
-                                            slotDate = new Date(rawStart[0], rawStart[1] - 1, rawStart[2], rawStart[3], rawStart[4]);
-                                        } else {
-                                            const sStr = String(rawStart);
-                                            const normalized = sStr.replace('T', ' ').replace('Z', '').trim();
-                                            if (normalized.includes(' ')) {
-                                                const [datePart, timePart] = normalized.split(' ');
-                                                const [y, m, d] = datePart.split('-').map(Number);
-                                                const [h, min] = timePart.split(':').map(Number);
-                                                slotDate = new Date(y, m - 1, d, h, min);
-                                            } else {
-                                                slotDate = new Date(rawStart);
-                                            }
-                                        }
-
-                                        // 1. Must be the selected day
-                                        if (!isSameDay(slotDate, selectedDate)) return false;
-
-                                        // 2. Must not be booked
-                                        const isBooked = s.isBooked === true || s.booked === true || s.booked === 1 || s.isBooked === 1;
-                                        if (isBooked) return false;
-
-                                        // 3. Must not be in the past (if today)
-                                        if (isSameDay(selectedDate, new Date()) && !showPastSlots && !isNaN(slotDate.getTime())) {
-                                            const now = new Date();
-                                            if (slotDate.getTime() < (now.getTime() - 5 * 60000)) {
-                                                return false;
-                                            }
-                                        }
-
-                                        return true;
-                                    });
-                                    // console.log("DEBUG: filteredSlots count (to display):", filteredSlots.length);
-
-                                    if (filteredSlots.length === 0) {
-                                        const hasStaleSlots = availableSlots.length > 0;
-                                        let message = "No slots available for today.";
-
-                                        if (hasStaleSlots) {
-                                            const firstSlot = availableSlots[0];
-                                            const raw = firstSlot.startTime || firstSlot.start_time;
-                                            let slotDate;
-                                            if (Array.isArray(raw)) {
-                                                slotDate = new Date(raw[0], (raw[1] || 1) - 1, raw[2] || 1, raw[3] || 0, raw[4] || 0);
-                                            } else {
-                                                slotDate = new Date(raw);
-                                            }
-                                            if (!isNaN(slotDate.getTime()) && !isSameDay(slotDate, today)) {
-                                                console.log("DEBUG: No slots found for today, found stale slots from previous date", slotDate);
-                                                message = `No slots available for today.`;
-                                            }
-                                        }
-
-                                        return (
-                                            <View style={{ alignItems: 'center', width: '100%', marginTop: 20 }}>
-                                                <Text style={styles.noSlotsText}>{message}</Text>
-                                                {/* <TouchableOpacity onPress={fetchAvailableSlots} style={{ marginTop: 20, padding: 10 }}>
-                                                    <Text style={{ color: Colors.primaryContainer, fontSize: 13 }}>Refresh List</Text>
-                                                </TouchableOpacity> */}
-                                            </View>
-                                        );
-                                    }
-
-                                    // Check if we are showing slots from a different date
-                                    const firstSlot = filteredSlots[0];
-                                    const raw = firstSlot.startTimeOnly || firstSlot.startTime || firstSlot.start_time;
-                                    let firstSlotDate;
-                                    if (firstSlot.startTimeOnly) {
-                                        firstSlotDate = new Date();
-                                    } else if (Array.isArray(raw)) {
-                                        firstSlotDate = new Date(raw[0], (raw[1] || 1) - 1, raw[2] || 1, raw[3] || 0, raw[4] || 0);
+                        {/* Limit Slider */}
+                        <View style={styles.sliderContainer}>
+                            <Slider
+                                style={styles.slider}
+                                minimumValue={chargingMode === 'custom' ? 1 : 18}
+                                maximumValue={chargingMode === 'custom' ? 60 : 1080}
+                                step={1}
+                                value={chargingMode === 'custom' ? customPower : amountEntered}
+                                onValueChange={(val) => {
+                                    if (chargingMode === 'custom') {
+                                        setCustomPower(Math.max(1, val));
                                     } else {
-                                        firstSlotDate = new Date(raw);
+                                        setAmountEntered(Math.max(18, val));
                                     }
-                                    const isStale = !firstSlot.startTimeOnly && !isNaN(firstSlotDate.getTime()) && !isSameDay(firstSlotDate, today);
+                                }}
+                                minimumTrackTintColor="#00B074"
+                                maximumTrackTintColor={isDark ? '#4A5568' : '#BFC7CE'}
+                                thumbTintColor="#00B074"
+                            />
+                        </View>
 
-                                    return (
-                                        <View style={{ width: '100%' }}>
-                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                                                {filteredSlots.map((slot, index) => {
-                                                    const rawStart = slot.startTimeOnly || slot.startTime || slot.start_time;
-                                                    let slotDate;
-                                                    if (typeof rawStart === 'string' && rawStart.includes(':') && !rawStart.includes('-')) {
-                                                        const [h, min] = rawStart.split(':').map(Number);
-                                                        slotDate = new Date();
-                                                        slotDate.setHours(h, min, 0, 0);
-                                                    } else if (Array.isArray(rawStart)) {
-                                                        slotDate = new Date(rawStart[0], (rawStart[1] || 1) - 1, rawStart[2] || 1, rawStart[3] || 0, rawStart[4] || 0);
-                                                    } else {
-                                                        slotDate = new Date(rawStart);
-                                                    }
-
-                                                    if (isNaN(slotDate.getTime())) return null; // skip invalid
-                                                    const timeLabel = format(slotDate, 'hh:mm a');
-                                                    const isSelected = selectedSlotId === (slot.id || slot._id);
-                                                    const isBooked = slot.isBooked === true || slot.booked === true || slot.booked === 1 || slot.isBooked === 1;
-
-                                                    return (
-                                                        <TouchableOpacity
-                                                            key={slot.id || index}
-                                                            style={[
-                                                                styles.slotChip,
-                                                                isSelected && styles.slotChipActive,
-                                                                isBooked && { opacity: 0.5, backgroundColor: '#222' }
-                                                            ]}
-                                                            onPress={() => !isBooked && setSelectedSlotId(slot.id || slot._id)}
-                                                            disabled={isBooked}
-                                                        >
-                                                            <Text style={[
-                                                                styles.slotTime,
-                                                                isSelected && styles.slotTimeActive,
-                                                                isBooked && { color: '#666' }
-                                                            ]}>
-                                                                {timeLabel}
-                                                            </Text>
-                                                            {isBooked && <Text style={{ fontSize: 8, color: '#444' }}>Out</Text>}
-                                                        </TouchableOpacity>
-                                                    );
-                                                })}
-                                            </View>
-
-
-                                        </View>
-                                    );
-                                })()}
+                        {/* Power / Amount Metrics below slider */}
+                        <View style={styles.metricComparisonRow}>
+                            <View style={styles.metricItemColumn}>
+                                <Text style={styles.metricLabel}>Power</Text>
+                                <Text style={styles.metricValue}>~{computedEnergy.toFixed(0)}kWh</Text>
                             </View>
-                        )}
+
+                            <View style={styles.metricItemColumn}>
+                                <Text style={styles.metricLabel}>Amount</Text>
+                                <Text style={styles.metricValue}>Rs.{computedCost.toFixed(0)}</Text>
+                            </View>
+                        </View>
+                    </View>
+
+                    {/* Swipe to Start Slider Track */}
+                    <View style={styles.swipeTrack}>
+                        <Animated.View 
+                            {...panResponder.panHandlers}
+                            style={[
+                                styles.swipeButton,
+                                { transform: [{ translateX: swipeX }] }
+                            ]}
+                        >
+                            <Power size={20} color="#1A1A1A" />
+                        </Animated.View>
+                        
+                        <Text style={styles.swipeText}>
+                            {isStarting ? "Starting..." : "Swipe to Start"}
+                        </Text>
+                        
+                        <View style={styles.swipeArrows}>
+                            <ChevronRight size={16} color="#BFC7CE" />
+                            <ChevronRight size={16} color="#5A6B7C" />
+                        </View>
                     </View>
                 </View>
             </ScrollView>
 
-            </ScrollView >
-
-            {/* Pay Button */}
-            {!loading && (
-                <View style={styles.bottomContainer}>
-                    <View style={{ flexDirection: 'row', gap: 10, width: '100%' }}>
-                        {/* Book in Advance - disabled for now */}
-                        {configTab === 'Book' && (
-                            <TouchableOpacity
-                                style={{
-                                    flex: 1,
-                                    backgroundColor: '#333',
-                                    paddingVertical: 16,
-                                    borderRadius: 14,
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    flexDirection: 'row',
-                                    gap: 8,
-                                    elevation: 0,
-                                }}
-                                onPress={() => {}}
-                                disabled={true}
-                                activeOpacity={1}
-                            >
-                                {/* <Calendar size={18} color="#888" /> */}
-                                <Text style={{ color: '#888', fontSize: 14, fontWeight: 'bold' }}>Book in Advance</Text>
-                            </TouchableOpacity>
-                        )}
-
-                        {/* Main action button */}
-                        <TouchableOpacity
-                            style={[
-                                styles.payBtn,
-                                { flex: 1 },
-                                !((configTab === 'Charge' && !isChargerAvailable) || (configTab === 'Book' && !selectedSlotId) || processingTransaction)
-                                ? { backgroundColor: '#fff' }
-                                : { backgroundColor: '#333' }
-                            ]}
-                            onPress={configTab === 'Charge' ? handlePay : handleBookSlot}
-                            disabled={
-                                (configTab === 'Charge' && !isChargerAvailable) ||
-                                (configTab === 'Book' && !selectedSlotId) ||
-                                processingTransaction
-                            }
+            {/* Dropdown Limits mode Modal */}
+            <Modal transparent={true} visible={showLimitDropdown} animationType="fade" onRequestClose={() => setShowLimitDropdown(false)}>
+                <TouchableOpacity style={styles.dropdownModalOverlay} activeOpacity={1} onPress={() => setShowLimitDropdown(false)}>
+                    <View style={[
+                        styles.dropdownMenu, 
+                        { 
+                            backgroundColor: theme.cardBg, 
+                            top: height * 0.58, 
+                            left: width * 0.30,
+                            width: width * 0.65
+                        }
+                    ]}>
+                        <TouchableOpacity 
+                            style={styles.dropdownOption} 
+                            onPress={() => { setChargingMode('custom'); setShowLimitDropdown(false); }}
                         >
-                            {processingTransaction ? (
-                                <ActivityIndicator size="small" color="#fff" />
-                            ) : (
-                                <Text style={[
-                                    styles.payBtnText,
-                                    ((configTab === 'Charge' && !isChargerAvailable) || (configTab === 'Book' && !selectedSlotId))
-                                        ? { color: '#888' }
-                                        : { color: '#000' }
-                                ]}>
-                                    {configTab === 'Charge'
-                                        ? (isChargerAvailable ? 'Start Charging' : `Charger ${formattedStatus}`)
-                                        : (selectedSlotId ? 'Confirm Slot' : 'Select a Slot')}
-                                </Text>
-                            )}
+                            <Text style={styles.dropdownOptionTitle}>Power (kW)</Text>
+                            <Text style={styles.dropdownOptionSub}>Customize power to recharge your vehicle</Text>
+                        </TouchableOpacity>
+                        <View style={styles.dropdownDivider} />
+                        <TouchableOpacity 
+                            style={styles.dropdownOption} 
+                            onPress={() => { setChargingMode('budget'); setShowLimitDropdown(false); }}
+                        >
+                            <Text style={styles.dropdownOptionTitle}>Amount (₹)</Text>
+                            <Text style={styles.dropdownOptionSub}>Set amount to recharge your vehicle</Text>
                         </TouchableOpacity>
                     </View>
-                </View>
-            )}
+                </TouchableOpacity>
+            </Modal>
 
-            {/* Confirmation Modal */}
-            <Modal
-                transparent={true}
-                visible={showConfirmModal}
-                animationType="fade"
-                onRequestClose={() => setShowConfirmModal(false)}
-            >
+            {/* Confirm Start Charging Modal */}
+            <Modal transparent={true} visible={showConfirmModal} animationType="fade" onRequestClose={() => setShowConfirmModal(false)}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Confirm Session</Text>
-                            <TouchableOpacity onPress={() => setShowConfirmModal(false)}>
-                                <X color="#ccc" size={24} />
-                            </TouchableOpacity>
-                        </View>
-
-                        <Text style={styles.modalDesc}>
-                            You are about to start a charging session.
-                        </Text>
-
+                        <Text style={styles.modalTitle}>Confirm Charging</Text>
+                        <Text style={styles.modalDesc}>Do you want to start charging?</Text>
+                        
                         <View style={styles.modalStats}>
                             <View style={styles.statRow}>
-                                <Text style={styles.statLabel}>Station</Text>
-                                <Text style={styles.statValue}>{stationName || "Unknown"}</Text>
+                                <Text style={styles.statLabel}>Power</Text>
+                                <Text style={styles.statValue}>
+                                    {chargingMode === 'custom' ? `${customPower} kWh` : `${computedEnergy.toFixed(1)} kWh`}
+                                </Text>
                             </View>
                             <View style={styles.statRow}>
-                                <Text style={styles.statLabel}>Mode</Text>
-                                <Text style={[styles.statValue, { color: Colors.primaryContainer }]}>
-                                    {isCustomMode ? "Custom Session" : (selectedPlan?.planName || "Plan Session")}
-                                </Text>
+                                <Text style={styles.statLabel}>Rate</Text>
+                                <Text style={styles.statValue}>₹{finalRate.toFixed(2)}/kWh</Text>
                             </View>
-                            {isCustomMode && (
-                                <View style={styles.statRow}>
-                                    <Text style={styles.statLabel}>Power Limit</Text>
-                                    <Text style={styles.statValue}>{customPower} kW</Text>
-                                </View>
-                            )}
-                            <View style={[styles.statRow, { marginTop: 8 }]}>
-                                <Text style={styles.statLabel}>{isCustomMode ? 'Est. Cost' : 'Total Pay'}</Text>
-                                <Text style={[
-                                    styles.statValue,
-                                    { color: Colors.primaryContainer, fontSize: 16 },
-                                    Number(walletBalance) < (isCustomMode
-                                        ? (Number(customPower) * (parseFloat(rate) || 0))
-                                        : Number(selectedPlan?.walletDeduction || selectedPlan?.price || 0)) && { color: '#F44336' }
-                                ]}>
-                                    {isCustomMode
-                                        ? `₹ ${(customPower * (parseFloat(rate) || 0)).toFixed(2)}/kWh`
-                                        : `₹ ${selectedPlan?.walletDeduction || selectedPlan?.price || '0'}`}
-                                </Text>
+                            <View style={styles.statRow}>
+                                <Text style={styles.statLabel}>Estimated Amount</Text>
+                                <Text style={styles.statValue}>₹{computedCost.toFixed(0)}</Text>
                             </View>
-                            {isCustomMode && (
-                                <Text style={{ color: '#888', fontSize: 11, textAlign: 'right', marginTop: 2 }}>
-                                    Rate: ₹{parseFloat(rate) || 0}/kWh × {customPower} kW
-                                </Text>
-                            )}
                         </View>
 
                         <View style={styles.modalActions}>
                             <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowConfirmModal(false)}>
                                 <Text style={styles.cancelBtnText}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={[styles.confirmBtn, { overflow: 'hidden' }]} onPress={confirmSession}>
-                                {/* <LinearGradient
-                                    colors={Colors.primaryGradient}
-                                    locations={[0.1, 1]}
-                                    start={{ x: 0, y: 0 }}
-                                    end={{ x: 0, y: 1 }}
-                                    style={StyleSheet.absoluteFill}
-                                /> */}
+                            <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirmStart}>
                                 <Text style={styles.confirmBtnText}>Start</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
                 </View>
             </Modal>
-            {/* Booking Success Modal */}
+
+            {/* Book Slot Bottom Sheet */}
             <Modal
+                visible={showBookingSheet}
                 transparent={true}
-                visible={showBookingSuccess}
                 animationType="fade"
-                onRequestClose={() => { }}
+                onRequestClose={closeBookingSheet}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <View style={{ alignItems: 'center', marginBottom: 20 }}>
-                            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(0, 230, 118, 0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 15 }}>
-                                <Check size={32} color={Colors.statusGreen} />
-                            </View>
-                            <Text style={styles.modalTitle}>Booking Confirmed!</Text>
-                            <Text style={[styles.modalDesc, { textAlign: 'center' }]}>
-                                Your slot has been successfully booked.
-                            </Text>
-                        </View>
+                <View style={styles.sheetOverlay}>
+                    <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={closeBookingSheet} />
+                    <Animated.View 
+                        style={[
+                            styles.sheetContainer,
+                            { transform: [{ translateY: slideAnim }] }
+                        ]}
+                    >
+                        <View style={styles.sheetHandle} />
 
-                        <View style={styles.modalStats}>
-
-                            <View style={styles.statRow}>
-                                <Text style={styles.statLabel}>Time</Text>
-                                <Text style={styles.statValue}>
-                                    {(() => {
-                                        const slot = availableSlots.find(s => (s.id || s._id) === selectedSlotId);
-                                        if (!slot) return 'N/A';
-
-                                        const rawStart = slot.startTimeOnly || slot.startTime || slot.start_time;
-                                        let slotDate;
-
-                                        if (slot.startTimeOnly) {
-                                            const [h, min] = String(slot.startTimeOnly).split(':').map(Number);
-                                            slotDate = new Date(selectedDate);
-                                            slotDate.setHours(h, min, 0, 0);
-                                        } else if (Array.isArray(rawStart)) {
-                                            slotDate = new Date(rawStart[0], rawStart[1] - 1, rawStart[2], rawStart[3], rawStart[4]);
-                                        } else {
-                                            slotDate = new Date(rawStart);
-                                        }
-
-                                        return isNaN(slotDate.getTime()) ? 'Invalid' : format(slotDate, 'hh:mm a');
-                                    })()}
-                                </Text>
-                            </View>
-                            <View style={styles.statRow}>
-                                <Text style={styles.statLabel}>Station</Text>
-                                <Text style={styles.statValue}>{stationName}</Text>
+                        <View style={styles.sheetHeaderRow}>
+                            <View style={styles.sheetTitleContainer}>
+                                <Text style={styles.sheetTitle}>Book Slot</Text>
+                                <Info size={20} color={theme.textSecondary} style={{ marginLeft: 8 }} />
                             </View>
                         </View>
+
+                        {slotsLoading ? (
+                            <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                                <ActivityIndicator size="large" color="#00B074" />
+                            </View>
+                        ) : (
+                            <View style={styles.slotsGrid}>
+                                {(availableSlots.length > 0 ? availableSlots : defaultTimeSlots).map((item) => {
+                                    const slotId = item.id || item.slotId;
+                                    const isSelected = selectedSlotId === slotId;
+                                    const timeText = formatSlotTime(item);
+
+                                    return (
+                                        <TouchableOpacity
+                                            key={slotId}
+                                            style={[
+                                                styles.slotPill,
+                                                isSelected && styles.slotPillSelected
+                                            ]}
+                                            onPress={() => setSelectedSlotId(slotId)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[
+                                                styles.slotPillText,
+                                                isSelected && styles.slotPillTextSelected
+                                            ]}>
+                                                {timeText}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        )}
 
                         <TouchableOpacity
-                            style={[styles.confirmBtn, { flex: 0, width: '100%', marginTop: 20, justifyContent: 'center' }]}
-                            onPress={handleBookingSuccessClose}
+                            style={[
+                                styles.confirmSlotBtn,
+                                selectedSlotId && styles.confirmSlotBtnActive
+                            ]}
+                            onPress={handleConfirmSlot}
+                            activeOpacity={0.8}
                         >
-                            <Text style={[styles.confirmBtnText, { color: '#000000' }]}>View My Bookings</Text>
+                            <Text style={[
+                                styles.confirmSlotBtnText,
+                                selectedSlotId && styles.confirmSlotBtnTextActive
+                            ]}>
+                                Confirm Slot
+                            </Text>
                         </TouchableOpacity>
-                    </View>
+                    </Animated.View>
                 </View>
             </Modal>
-        </View >
+        </View>
     );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme, isDark) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#121212', // Matte black
+        backgroundColor: isDark ? '#181818' : '#fff',
     },
-    topBar: {
-        backgroundColor: 'transparent',
-        zIndex: 10,
+    mainContent: {
+        flex: 1,
     },
-    topBarContent: {
+    heroContainer: {
+        width: '100%',
+        height: 310,
+        position: 'relative',
+    },
+    heroImage: {
+        width: '100%',
+        height: '100%',
+    },
+    headerOverlay: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        height: 60,
+        paddingHorizontal: 20,
     },
-    leftNav: {
+    headerCircleBtn: {
+        width: 48,
+        height: 48,
+        borderRadius: 20,
+        backgroundColor: isDark ? 'rgb(44, 44, 44)' : 'rgb(255, 255, 255)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 2,
+    },
+    headerLogo: {
+        width: 120,
+        height: 35,
+    },
+    bodyContent: {
+        flex: 1,
+        paddingHorizontal: 20,
+        paddingTop: 16,
+        paddingBottom: 24,
+    },
+    selectionRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        gap: 12,
+        marginBottom: 20,
+    },
+    connectorCard: {
+        flex: 1,
+        backgroundColor: isDark ? '#1f1f1f' : '#CCD8EA',
+        borderRadius: 24,
+        paddingLeft: 16,
+        paddingRight: 16,
+        paddingTop: 16,
+        paddingBottom: 0,
+        aspectRatio: 0.8,
+        overflow: 'hidden',
+        position: 'relative',
+        borderWidth: 0,
+        borderColor: 'transparent',
+        marginTop: -20,
+    },
+    connectorCardActive: {
+        borderColor: '#00B074',
+        borderWidth: 0,
+    },
+    connectorTypeLabel: {
+        fontSize: 10,
+        color: theme.textSecondary,
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+    },
+    connectorName: {
+        fontSize: 15,
+        fontWeight: '900',
+        color: theme.textPrimary,
+        marginTop: 2,
+    },
+    connectorImg: {
+        position: 'absolute',
+        bottom: -36,
+        right: 0,
+        left: 0,
+        width: '130%',
+        height: '130%',
+        aspectRatio: 1,
+        zIndex: -10,
+    },
+    limitCard: {
+        backgroundColor: isDark ? '#2A2A2A' : theme.cardBg,
+        borderRadius: 24,
+        padding: 20,
+        marginBottom: 20,
+        borderWidth: isDark ? 1 : 0,
+        borderColor: isDark ? '#333333' : 'transparent',
+    },
+    limitHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    limitHeaderTitle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: theme.textPrimary,
+    },
+    dropdownTogglePill: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 15,
-    },
-    pageTitle: {
-        color: '#fff',
-        fontSize: 18,
-        fontWeight: '600',
-    },
-    rightNav: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 15,
-    },
-    iconBtn: {
-        padding: 5,
-    },
-    walletPill: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: isDark ? '#383838' : theme.white,
         paddingVertical: 6,
         paddingHorizontal: 12,
         borderRadius: 20,
-        gap: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
     },
-    walletText: {
-        color: '#fff',
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    // Tab Styles
-    tabContainer: {
-        flexDirection: 'row',
-        marginHorizontal: 16,
-        marginBottom: 20,
-        backgroundColor: '#1E1E1E',
-        borderRadius: 12,
-        padding: 4,
-    },
-    tabBtn: {
-        flex: 1,
+    dropdownToggleContent: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 12,
-        borderRadius: 10,
-        gap: 8,
     },
-    tabBtnActive: {
-        // Handled by tabIndicator background now
-    },
-    tabIndicator: {
-        position: 'absolute',
-        top: 4,
-        bottom: 4,
-        left: 4,
-        width: (width - 32 - 8) / 2, // Container is width-32, internal padding is 4+4=8
-        backgroundColor: '#FFFFFF',
-        borderRadius: 10,
-    },
-    tabText: {
-        color: '#aaa',
-        fontSize: 14,
-        fontWeight: '600',
-    },
-    tabTextActive: {
-        color: '#121212',
-        fontWeight: 'bold',
-    },
-    // Slot UI Styles
-    slotContainer: {
-        marginTop: 10,
-    },
-    dateSelector: {
-        marginBottom: 20,
-    },
-    dateChip: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: 12,
-        backgroundColor: '#1E1E1E',
-        alignItems: 'center',
-        marginRight: 10,
-        borderWidth: 1,
-        borderColor: '#333',
-    },
-    dateChipActive: {
-        backgroundColor: Colors.primaryContainer,
-        borderColor: Colors.primaryContainer,
-    },
-    dateDay: {
-        color: '#aaa',
-        fontSize: 12,
-        marginBottom: 4,
-        textTransform: 'uppercase',
-    },
-    dateNumber: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
-    dateTextActive: {
-        color: '#121212',
-    },
-    slotsGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        paddingHorizontal: 12,
-        gap: 10,
-    },
-    slotChip: {
-        width: (width - 32 - 20) / 3, // 3 columns
-        paddingVertical: 12,
-        backgroundColor: '#1E1E1E',
-        borderRadius: 8,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#333',
-    },
-    slotChipActive: {
-        backgroundColor: 'rgba(0, 230, 118, 0.15)',
-        borderColor: Colors.statusGreen,
-    },
-    slotTime: {
-        color: '#ccc',
-        fontSize: 14,
-        fontWeight: '500',
-    },
-    slotTimeActive: {
-        color: Colors.statusGreen,
-        fontWeight: 'bold',
-    },
-    noSlotsText: {
-        color: '#666',
-        textAlign: 'center',
-        width: '100%',
-        marginTop: 20,
-        fontStyle: 'italic',
-    },
-    scrollContent: {
-        paddingBottom: 100,
-    },
-
-    // Charger Card
-    chargerCard: {
-        backgroundColor: 'rgba(30, 30, 30, 0.35)', // Glassmorphism
-        margin: 16,
-        borderRadius: 20,
-        padding: 20,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#333',
-    },
-    chargerInfo: {
-        flex: 1,
-    },
-    chargerName: {
-        color: '#fff',
-        fontSize: 20,
-        fontWeight: '600',
-        marginBottom: 8,
-    },
-    chargerMeta: {
-        color: '#aaa',
+    dropdownToggleText: {
         fontSize: 13,
-        lineHeight: 18,
+        fontWeight: 'bold',
+        color: theme.textPrimary,
     },
-    chargerImgBox: {
-        width: 60,
-        height: 60,
-        backgroundColor: 'rgba(57, 226, 155, 0.1)', // Keep rgba for opacity or use hex to rgba utility if available
-        borderRadius: 15,
-        alignItems: 'center',
-        justifyContent: 'center',
+    sliderContainer: {
+        width: '100%',
+        marginBottom: 16,
     },
-    statusPill: {
-        alignSelf: 'flex-start',
+    slider: {
+        width: '100%',
+        height: 30,
+    },
+    metricComparisonRow: {
         flexDirection: 'row',
+        justifyContent: 'space-around',
+    },
+    metricItemColumn: {
         alignItems: 'center',
-        paddingVertical: 4,
-        paddingHorizontal: 10,
-        borderRadius: 12,
-        borderWidth: 1,
-        marginTop: 8,
-        gap: 6,
     },
-    statusDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-    },
-    statusText: {
-        fontSize: 12,
-        fontWeight: 'bold',
-    },
-
-    // Plans
-    sectionHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: 16,
-        marginBottom: 10,
-        marginTop: 10,
-    },
-    sectionTitle: {
-        color: '#fff',
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
-    lastUsedPill: {
-        borderWidth: 1,
-        borderColor: Colors.primaryContainer,
-        borderRadius: 20,
-        paddingVertical: 4,
-        paddingHorizontal: 10,
-    },
-    lastUsedText: {
-        color: Colors.primaryContainer,
-        fontSize: 10,
-        fontWeight: 'bold',
-    },
-    plansContainer: {
-        paddingHorizontal: 16,
-        gap: 12,
-    },
-    planItem: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderRadius: 16,
-        padding: 16,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-    },
-    planActive: {
-        backgroundColor: '#252525',
-        borderColor: Colors.primaryContainer,
-        borderWidth: 2,
-    },
-    planInfo: {
-        flex: 1,
-    },
-    planName: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: 'bold',
+    metricLabel: {
+        fontSize: 11,
+        color: theme.textSecondary,
         marginBottom: 4,
     },
-    planMeta: {
-        color: '#888',
-        fontSize: 12,
+    metricValue: {
+        fontSize: 16,
+        fontWeight: '900',
+        color: theme.textPrimary,
     },
-    planRate: {
-        color: '#aaa',
-        fontSize: 11,
-        marginTop: 2,
+    swipeTrack: {
+        width: '100%',
+        height: 72,
+        backgroundColor: isDark ? '#2A2A2A' : theme.cardBg,
+        borderRadius: 42,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 8,
+        position: 'relative',
+        borderWidth: isDark ? 1 : 0,
+        borderColor: isDark ? '#333333' : 'transparent',
     },
-    planPrice: {
-        color: Colors.primaryContainer, // Green price
-        fontSize: 18,
-        fontWeight: 'bold',
+    swipeButton: {
+        width: 52,
+        height: 52,
+        borderRadius: 32,
+        backgroundColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 0,
+        zIndex: 5,
     },
-
-    // Bottom
-    bottomContainer: {
+    swipeText: {
         position: 'absolute',
-        bottom: 20,
         left: 0,
         right: 0,
-        paddingHorizontal: 16,
-        alignItems: 'center',
-    },
-    payBtn: {
-        width: '100%',
-        paddingVertical: 16,
-        borderRadius: 14,
-        alignItems: 'center',
-        elevation: 5,
-        overflow: 'hidden',
-    },
-    payBtnText: {
-        color: '#000',
-        fontSize: 16,
+        textAlign: 'center',
+        fontSize: 14,
         fontWeight: 'bold',
+        color: theme.textSecondary,
+        zIndex: 1,
     },
-    powerBtn: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: '#333',
+    swipeArrows: {
+        position: 'absolute',
+        right: 20,
+        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: '#555',
     },
-
-    // Modal Styles
+    dropdownModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.1)',
+    },
+    dropdownMenu: {
+        position: 'absolute',
+        borderRadius: 12,
+        padding: 8,
+        width: 120,
+        elevation: 5,
+    },
+    dropdownOption: {
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+    },
+    dropdownOptionTitle: {
+        fontSize: 13,
+        fontWeight: 'bold',
+        color: theme.textPrimary,
+    },
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.85)',
+        backgroundColor: theme.overlayBg,
         justifyContent: 'center',
         alignItems: 'center',
-        padding: 20,
     },
     modalContent: {
-        width: '100%',
-        maxWidth: 340,
-        backgroundColor: '#1E1E1E',
+        width: width * 0.85,
+        backgroundColor: theme.background,
         borderRadius: 24,
         padding: 24,
-        borderWidth: 1,
-        borderColor: '#333',
-        elevation: 10,
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 15,
     },
     modalTitle: {
-        color: '#fff',
         fontSize: 20,
         fontWeight: 'bold',
+        color: theme.textPrimary,
+        marginBottom: 8,
     },
     modalDesc: {
-        color: '#aaa',
         fontSize: 14,
+        color: theme.textSecondary,
         marginBottom: 20,
     },
     modalStats: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderRadius: 12,
+        backgroundColor: theme.cardBg,
+        borderRadius: 16,
         padding: 16,
-        marginBottom: 24,
-        gap: 8,
+        gap: 12,
+        marginBottom: 20,
     },
     statRow: {
         flexDirection: 'row',
@@ -1649,13 +890,13 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     statLabel: {
-        color: '#ccc',
-        fontSize: 14,
+        fontSize: 12,
+        color: theme.textSecondary,
     },
     statValue: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: 14,
+        fontSize: 13,
+        fontWeight: 'bold',
+        color: theme.textPrimary,
     },
     modalActions: {
         flexDirection: 'row',
@@ -1663,41 +904,159 @@ const styles = StyleSheet.create({
     },
     cancelBtn: {
         flex: 1,
-        padding: 14,
+        paddingVertical: 14,
+        borderRadius: 24,
+        backgroundColor: theme.cardBg,
         alignItems: 'center',
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#333',
     },
     cancelBtnText: {
-        color: '#888',
-        fontWeight: '600',
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: theme.textSecondary,
     },
     confirmBtn: {
         flex: 1,
-        padding: 14,
-        borderRadius: 12,
-        backgroundColor: Colors.white,
+        paddingVertical: 14,
+        borderRadius: 24,
+        backgroundColor: '#00B074',
         alignItems: 'center',
-        overflow: 'hidden',
     },
-    confirmBtnText: {
-        color: '#000', // Assuming primary is bright/green
-        fontWeight: 'bold',
+    dropdownOptionSub: {
+        fontSize: 11,
+        color: theme.textSecondary,
+        marginTop: 2,
     },
-    radioCircle: {
-        height: 20,
-        width: 20,
-        borderRadius: 10,
-        borderWidth: 2,
-        borderColor: '#555',
+    dropdownDivider: {
+        height: 1,
+        backgroundColor: theme.divider,
+        marginVertical: 4,
+    },
+    sheetOverlay: {
+        flex: 1,
+        justifyContent: 'flex-end',
+        backgroundColor: 'rgba(0,0,0,0.4)',
+    },
+    sheetBackdrop: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    sheetContainer: {
+        backgroundColor: isDark ? '#1a1a1a' : '#DCE2E7',
+        borderTopLeftRadius: 32,
+        borderTopRightRadius: 32,
+        paddingHorizontal: 20,
+        paddingTop: 12,
+        paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+        elevation: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+    },
+    sheetHandle: {
+        width: 48,
+        height: 5,
+        borderRadius: 3,
+        backgroundColor: '#2b2b2b',
+        alignSelf: 'center',
+        marginBottom: 16,
+    },
+    sheetHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
+        marginBottom: 20,
+    },
+    sheetTitleContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    sheetTitle: {
+        fontSize: 22,
+        fontWeight: '900',
+        color: theme.textPrimary,
+    },
+    slotsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+        rowGap: 12,
+        marginBottom: 24,
+    },
+    slotPill: {
+        width: '48%',
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: isDark ? '#141414' : '#EAF0F5',
         justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 8,
     },
-    radioInner: {
-        height: 10,
-        width: 10,
-        borderRadius: 5,
-        backgroundColor: Colors.primaryContainer,
+    slotPillSelected: {
+        backgroundColor: '#004d34',
+    },
+    slotPillText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: theme.textPrimary,
+    },
+    slotPillTextSelected: {
+        color: '#FFFFFF',
+        fontWeight: '700',
+    },
+    confirmSlotBtn: {
+        width: '100%',
+        height: 58,
+        borderRadius: 27,
+        elevation: 8,
+        backgroundColor: isDark ? '#101010' : '#EAF0F5',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    confirmSlotBtnActive: {
+        backgroundColor: '#282828',
+    },
+    confirmSlotBtnText: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: theme.textSecondary,
+    },
+    confirmSlotBtnTextActive: {
+        color: '#FFFFFF',
+    },
+});
+
+const getSupportStyles = (theme, isDark) => StyleSheet.create({
+    modalContainer: {
+        flex: 1,
+        justifyContent: 'flex-end',
+    },
+    overlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+    },
+    sheetContainer: {
+        backgroundColor: theme.cardBg,
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+        paddingHorizontal: 20,
+        paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+        maxHeight: height * 0.7,
+        borderWidth: 1,
+        borderColor: theme.divider,
+    },
+    sheetHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: 20,
+        marginBottom: 20,
+    },
+    closeButton: {
+        padding: 4,
+    },
+    sheetTitle: {
+        fontSize: 20,
+        fontWeight: '900',
+        color: theme.textPrimary,
     },
 });

@@ -1,32 +1,13 @@
-// src/components/BackgroundLocationModal.js
-// Play Store Compliant – Prominent Disclosure for Background Location
-// Shown ONCE per device install, just after the user first reaches HomeScreen.
-
 import React, { useEffect, useRef } from 'react';
-import {
-    Modal,
-    View,
-    Text,
-    TouchableOpacity,
-    StyleSheet,
-    Platform,
-    PermissionsAndroid,
-    Linking,
-    Animated,
-} from 'react-native';
+import { Modal, View, Text, TouchableOpacity, StyleSheet, Platform, PermissionsAndroid, Linking, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MapPin, Navigation, Zap } from 'lucide-react-native';
+import { MapPin, Navigation, Bolt } from 'lucide-react-native';
 import { authService } from '../services/auth';
+import { useTheme } from '../context/ThemeContext';
 
-/**
- * BackgroundLocationModal
- *
- * Props:
- *  visible  {boolean}   – controls modal visibility
- *  onDone   {function}  – called after user taps Allow OR Not Now (modal dismissed)
- */
 export default function BackgroundLocationModal({ visible, onDone }) {
     const insets = useSafeAreaInsets();
+    const { theme } = useTheme();
     const progress = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
@@ -63,41 +44,23 @@ export default function BackgroundLocationModal({ visible, onDone }) {
     };
 
     const handleAllow = async () => {
-        // Mark shown first (so we don't loop even if permission fails)
         await authService.setBgLocationConsentShown();
 
         if (Platform.OS === 'android') {
             try {
-                // Step 1: Ensure foreground location is granted (required before bg on Android 11+)
                 const fgGranted = await PermissionsAndroid.check(
                     PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
                 );
 
                 if (!fgGranted) {
                     await PermissionsAndroid.request(
-                        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-                        {
-                            title: 'Location Access',
-                            message: 'Bentork EV needs your location to find nearby charging stations.',
-                            buttonPositive: 'Allow',
-                            buttonNegative: 'Deny',
-                        }
+                        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
                     );
                 }
 
-                // Step 2: Request background location (Android 10+)
                 if (Platform.Version >= 29) {
                     await PermissionsAndroid.request(
-                        PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
-                        {
-                            title: 'Allow Background Location',
-                            message:
-                                'To monitor your charging session and send arrival / departure alerts, ' +
-                                'Bentork EV needs location access even when the app is in the background.\n\n' +
-                                'On the next screen, please select "Allow all the time".',
-                            buttonPositive: 'Continue',
-                            buttonNegative: 'Skip',
-                        }
+                        PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION
                     );
                 }
             } catch (err) {
@@ -114,25 +77,20 @@ export default function BackgroundLocationModal({ visible, onDone }) {
             transparent
             animationType="none"
             statusBarTranslucent
-            onRequestClose={() => { /* intentionally blocked */ }}
+            onRequestClose={() => {}}
         >
-            <Animated.View style={[styles.overlay, overlayStyle]}>
-                <Animated.View
-                    style={[
-                        styles.card,
-                        cardStyle,
-                    ]}
-                >
+            <Animated.View style={[styles.overlay, { backgroundColor: theme.overlayBg }, overlayStyle]}>
+                <Animated.View style={[styles.card, { backgroundColor: theme.background }, cardStyle]}>
                     {/* Icon Badge */}
-                    <View style={styles.iconBadge}>
-                        <Navigation size={26} color="#39E29B" />
+                    <View style={[styles.iconBadge, { backgroundColor: theme.white }]}>
+                        <Navigation size={26} color={theme.textPrimary} />
                     </View>
 
                     {/* Title */}
-                    <Text style={styles.title}>Background Location Access</Text>
-                    <Text style={styles.subtitle}>
+                    <Text style={[styles.title, { color: theme.textPrimary }]}>Background Location Access</Text>
+                    <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
                         Allow Bentork EV to access your location{' '}
-                        <Text style={styles.highlight}>even when the app is closed</Text>
+                        <Text style={[styles.highlight, { color: theme.textPrimary }]}>even when the app is closed</Text>
                     </Text>
 
                     {/* Feature list */}
@@ -142,7 +100,7 @@ export default function BackgroundLocationModal({ visible, onDone }) {
                             text="Find the nearest available charger in real time"
                         />
                         <FeatureRow
-                            Icon={Zap}
+                            Icon={Bolt}
                             text="Monitor your charging session and notify you when it's complete"
                         />
                         <FeatureRow
@@ -152,9 +110,9 @@ export default function BackgroundLocationModal({ visible, onDone }) {
                     </View>
 
                     {/* Privacy note */}
-                    <Text style={styles.privacyNote}>
+                    <Text style={[styles.privacyNote, { color: theme.textSecondary }]}>
                         Your location is{' '}
-                        <Text style={styles.privacyHighlight}>never sold to third parties</Text>
+                        <Text style={[styles.privacyHighlight, { color: theme.textPrimary }]}>never sold to third parties</Text>
                         {' '}and is processed per our{' '}
                         <Text
                             style={styles.link}
@@ -163,17 +121,16 @@ export default function BackgroundLocationModal({ visible, onDone }) {
                             Privacy Policy
                         </Text>
                         .{'\n'}You can revoke access anytime in{' '}
-                        <Text style={styles.privacyHighlight}>Settings → Apps → Bentork EV → Permissions</Text>.
+                        <Text style={[styles.privacyHighlight, { color: theme.textPrimary }]}>Settings → Apps → Bentork EV → Permissions</Text>.
                     </Text>
 
                     {/* CTA buttons */}
                     <TouchableOpacity
-                        style={styles.allowBtn}
+                        style={[styles.allowBtn, { backgroundColor: theme.white }]}
                         onPress={handleAllow}
                         activeOpacity={0.85}
-                        accessibilityLabel="Allow background location"
                     >
-                        <Text style={styles.allowBtnText}>Allow Access</Text>
+                        <Text style={[styles.allowBtnText, { color: theme.textPrimary }]}>Allow Access</Text>
                     </TouchableOpacity>
                 </Animated.View>
             </Animated.View>
@@ -182,12 +139,13 @@ export default function BackgroundLocationModal({ visible, onDone }) {
 }
 
 function FeatureRow({ Icon, text }) {
+    const { theme } = useTheme();
     return (
         <View style={styles.featureRow}>
-            <View style={styles.featureIconWrap}>
-                <Icon size={15} color="#39E29B" />
+            <View style={[styles.featureIconWrap, { backgroundColor: theme.white }]}>
+                <Icon size={15} color={theme.textPrimary} />
             </View>
-            <Text style={styles.featureText}>{text}</Text>
+            <Text style={[styles.featureText, { color: theme.textPrimary }]}>{text}</Text>
         </View>
     );
 }
@@ -195,119 +153,93 @@ function FeatureRow({ Icon, text }) {
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.72)',
         justifyContent: 'center',
         alignItems: 'center',
         padding: 20,
     },
-
     card: {
         width: '100%',
         maxWidth: 400,
-        backgroundColor: '#161616',
         borderRadius: 28,
         padding: 28,
-        borderWidth: 1,
-        borderColor: 'rgba(57,226,155,0.18)',
+        elevation: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 10,
     },
-
     iconBadge: {
         width: 60,
         height: 60,
         borderRadius: 30,
-        backgroundColor: 'rgba(57,226,155,0.1)',
-        borderWidth: 1.5,
-        borderColor: 'rgba(57,226,155,0.3)',
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 16,
         alignSelf: 'center',
     },
-
     title: {
         fontSize: 20,
-        fontWeight: '700',
-        color: '#FFFFFF',
+        fontWeight: '900',
         textAlign: 'center',
         marginBottom: 8,
     },
-
     subtitle: {
         fontSize: 14,
-        color: '#999',
         textAlign: 'center',
         lineHeight: 21,
         marginBottom: 22,
-    },
-
-    highlight: {
-        color: '#FFFFFF',
         fontWeight: '600',
     },
-
+    highlight: {
+        fontWeight: '800',
+    },
     featureList: {
         gap: 12,
         marginBottom: 20,
     },
-
     featureRow: {
         flexDirection: 'row',
         alignItems: 'flex-start',
         gap: 12,
     },
-
     featureIconWrap: {
         width: 30,
         height: 30,
-        borderRadius: 8,
-        backgroundColor: 'rgba(57,226,155,0.1)',
+        borderRadius: 15,
         justifyContent: 'center',
         alignItems: 'center',
         flexShrink: 0,
     },
-
     featureText: {
         flex: 1,
         fontSize: 14,
-        color: '#CCCCCC',
         lineHeight: 21,
+        fontWeight: '800',
     },
-
     privacyNote: {
         fontSize: 12,
-        color: '#555',
         textAlign: 'center',
         lineHeight: 18,
         marginBottom: 22,
+        fontWeight: '600',
     },
-
     privacyHighlight: {
-        color: '#777',
+        fontWeight: '700',
     },
-
     link: {
-        color: '#39E29B',
+        color: '#00B074',
         textDecorationLine: 'underline',
+        fontWeight: '800',
     },
-
     allowBtn: {
-        backgroundColor: '#39E29B',
-        height: 52,
-        borderRadius: 16,
+        height: 56,
+        borderRadius: 28,
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 10,
-        shadowColor: '#39E29B',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-        elevation: 6,
     },
-
     allowBtnText: {
-        color: '#000',
         fontSize: 16,
-        fontWeight: '700',
+        fontWeight: '900',
     },
-
 });

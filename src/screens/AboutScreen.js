@@ -1,116 +1,119 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity, StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft, X } from 'lucide-react-native';
+import { ChevronLeft } from 'lucide-react-native';
+import { useTheme } from '../context/ThemeContext';
 
-const AboutScreen = ({ navigation }) => {
+export default function AboutScreen({ navigation }) {
     const insets = useSafeAreaInsets();
-
-    const appVersion = "1.0.0"; // Replace with actual version logic if available
-
-    // Use a placeholder if about.png is not available, or assume it will be there.
-    // For now, using a require that might fail if I didn't successfully copy it.
-    // So I will use the locally available logo_inverted.png as a safe placeholder 
-    // but name the variable aboutImage so it's easy to swap.
-    const aboutImage = require('../assets/images/logo_inverted.png');
+    const { theme, isDark } = useTheme();
+    const appVersion = "1.0.0"; 
 
     return (
-        <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+            <StatusBar translucent backgroundColor="transparent" barStyle={isDark ? 'light-content' : 'dark-content'} />
+
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <ChevronLeft size={28} color="#fff" />
+                <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.backButton, { backgroundColor: theme.cardBg }]}>
+                    <ChevronLeft size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>About Us</Text>
-                <View style={{ width: 28 }} />
+                <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>About Us</Text>
+                <View style={{ width: 40 }} />
             </View>
 
-            <ScrollView contentContainerStyle={styles.content}>
-                {/* Image */}
-                <View style={styles.imageContainer}>
+            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+                
+                {/* Brand Logo Card Container */}
+                <View style={styles.logoCard}>
                     <Image
-                        source={aboutImage}
-                        style={styles.image}
-                        resizeMode="cover" // or contain depending on the image aspect ratio
+                        source={require('../assets/images/logo_inverted.png')}
+                        style={[styles.logoImage, { tintColor: theme.textPrimary }]}
+                        resizeMode="contain"
                     />
                 </View>
 
-                {/* Text Content */}
-                <View style={styles.textContainer}>
-                    <Text style={styles.paragraph}>
+                {/* About Content Card */}
+                <View style={[styles.descriptionCard, { backgroundColor: theme.cardBg }]}>
+                    <Text style={[styles.paragraph, { color: theme.textSecondary }]}>
                         Bentork Industries is a leading manufacturer of Lithium-ion and LFP
                         battery packs in India with over five years of experience delivering
                         safe, high-performance, and long-lasting energy solutions for EVs,
                         solar, industrial, and other applications.
                     </Text>
-                    <Text style={styles.paragraph}>
+                    <Text style={[styles.paragraph, { color: theme.textSecondary }]}>
                         Building on this expertise, we are expanding into EV charging
                         infrastructure, providing safe, reliable, and user-friendly charging
                         experiences with smart technology, real-time monitoring, and seamless
                         digital payments.
                     </Text>
-                    <Text style={styles.paragraph}>
+                    <Text style={[styles.paragraph, { color: theme.textSecondary, marginBottom: 0 }]}>
                         Our commitment: “Connecting to the Modern World” through innovation,
                         quality, and accessible energy solutions for businesses and everyday
                         users.
                     </Text>
                 </View>
 
-                {/* Version Number */}
+                {/* Footer Version Details */}
                 <View style={styles.footer}>
-                    <Text style={styles.versionText}>Version {appVersion}</Text>
+                    <Text style={[styles.versionText, { color: theme.textSecondary }]}>Version {appVersion}</Text>
                 </View>
             </ScrollView>
         </View>
     );
-};
+}
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#121212',
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 20,
-        paddingBottom: 20,
-        marginTop: 20,
+        paddingBottom: 16,
+        marginTop: 10,
     },
     backButton: {
-        padding: 5,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     headerTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#fff',
+        fontSize: 22,
+        fontWeight: '900',
+        textAlign: 'center',
+        flex: 1,
     },
     content: {
         paddingHorizontal: 20,
         paddingBottom: 40,
     },
-    imageContainer: {
+    logoCard: {
         width: '100%',
-        height: 200,
-        borderRadius: 16,
-        overflow: 'hidden',
-        marginBottom: 24,
-        backgroundColor: '#1E1E1E', // Placeholder background
+        height: 140,
+        backgroundColor: '#e2e7ec00',
+        borderRadius: 28,
         justifyContent: 'center',
         alignItems: 'center',
+        marginBottom: 20,
+        padding: 24,
     },
-    image: {
-        width: '50%',
-        height: '50%',
+    logoImage: {
+        width: '80%',
+        height: '100%',
     },
-    textContainer: {
-        marginBottom: 32,
+    descriptionCard: {
+        borderRadius: 28,
+        padding: 24,
+        marginBottom: 24,
     },
     paragraph: {
         fontSize: 14,
         lineHeight: 22,
-        color: 'rgba(255,255,255,0.8)',
         marginBottom: 16,
         textAlign: 'justify',
     },
@@ -120,8 +123,6 @@ const styles = StyleSheet.create({
     },
     versionText: {
         fontSize: 12,
-        color: 'rgba(255,255,255,0.4)',
+        fontWeight: '600',
     },
 });
-
-export default AboutScreen;

@@ -78,6 +78,16 @@ yarn-error.log
 # Environment variables
 .env
 
-#Antigravity
 .agents/
-AGENTS.md
+.agents/rules/*
+
+# Temporary refactor scripts
+refactor*.py
+# Wireless run script
+run-wireless.bat
+
+
+# Expo
+.expo
+dist/
+web-build/

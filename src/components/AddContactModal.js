@@ -1,10 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { 
-    View, Text, StyleSheet, TextInput, TouchableOpacity, 
-    Modal, KeyboardAvoidingView, Platform, ScrollView, Animated
-} from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, KeyboardAvoidingView, Platform, ScrollView, Animated } from 'react-native';
 import { X, User, Phone, Mail } from 'lucide-react-native';
-import { Colors, Fonts } from '../styles/GlobalStyles';
 
 export default function AddContactModal({ visible, onClose, onSave }) {
     const [name, setName] = useState('');
@@ -47,7 +43,6 @@ export default function AddContactModal({ visible, onClose, onSave }) {
 
     const handleSave = () => {
         if (!name.trim() || !phone.trim()) {
-            // Simple validation, normally we show error
             return;
         }
         onSave({
@@ -55,7 +50,6 @@ export default function AddContactModal({ visible, onClose, onSave }) {
             phone,
             email,
         });
-        // Reset
         setName('');
         setPhone('');
         setEmail('');
@@ -74,72 +68,72 @@ export default function AddContactModal({ visible, onClose, onSave }) {
             >
                 <Animated.View style={[styles.modalOverlay, overlayStyle]}>
                     <Animated.View style={[styles.modalContent, cardStyle]}>
-                    <View style={styles.header}>
-                        <Text style={styles.title}>New Contact</Text>
-                        <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                            <X size={24} color="#fff" />
-                        </TouchableOpacity>
-                    </View>
-
-                    <ScrollView style={styles.form}>
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>Full Name</Text>
-                            <View style={styles.inputContainer}>
-                                <User size={20} color="#666" style={styles.icon} />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter full name"
-                                    placeholderTextColor="#666"
-                                    value={name}
-                                    onChangeText={setName}
-                                />
-                            </View>
+                        <View style={styles.header}>
+                            <Text style={styles.title}>New Contact</Text>
+                            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                                <X size={20} color="#1A1A1A" />
+                            </TouchableOpacity>
                         </View>
 
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>Phone Number</Text>
-                            <View style={styles.inputContainer}>
-                                <Phone size={20} color="#666" style={styles.icon} />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter phone number"
-                                    placeholderTextColor="#666"
-                                    keyboardType="phone-pad"
-                                    value={phone}
-                                    onChangeText={setPhone}
-                                />
+                        <ScrollView style={styles.form} keyboardShouldPersistTaps="handled">
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Full Name</Text>
+                                <View style={styles.inputContainer}>
+                                    <User size={20} color="#5A6B7C" style={styles.icon} />
+                                    <TextInput
+                                        style={styles.input}
+                                        placeholder="Enter full name"
+                                        placeholderTextColor="#7E8E9F"
+                                        value={name}
+                                        onChangeText={setName}
+                                    />
+                                </View>
                             </View>
-                        </View>
 
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>Email Address</Text>
-                            <View style={styles.inputContainer}>
-                                <Mail size={20} color="#666" style={styles.icon} />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter email address"
-                                    placeholderTextColor="#666"
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    value={email}
-                                    onChangeText={setEmail}
-                                />
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Phone Number</Text>
+                                <View style={styles.inputContainer}>
+                                    <Phone size={20} color="#5A6B7C" style={styles.icon} />
+                                    <TextInput
+                                        style={styles.input}
+                                        placeholder="Enter phone number"
+                                        placeholderTextColor="#7E8E9F"
+                                        keyboardType="phone-pad"
+                                        value={phone}
+                                        onChangeText={setPhone}
+                                    />
+                                </View>
                             </View>
-                        </View>
-                    </ScrollView>
 
-                    <View style={styles.footer}>
-                        <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-                            <Text style={styles.cancelBtnText}>Cancel</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity 
-                            style={[styles.saveBtn, (!name.trim() || !phone.trim()) && styles.saveBtnDisabled]} 
-                            onPress={handleSave}
-                            disabled={!name.trim() || !phone.trim()}
-                        >
-                            <Text style={styles.saveBtnText}>Save</Text>
-                        </TouchableOpacity>
-                    </View>
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Email Address</Text>
+                                <View style={styles.inputContainer}>
+                                    <Mail size={20} color="#5A6B7C" style={styles.icon} />
+                                    <TextInput
+                                        style={styles.input}
+                                        placeholder="Enter email address"
+                                        placeholderTextColor="#7E8E9F"
+                                        keyboardType="email-address"
+                                        autoCapitalize="none"
+                                        value={email}
+                                        onChangeText={setEmail}
+                                    />
+                                </View>
+                            </View>
+                        </ScrollView>
+
+                        <View style={styles.footer}>
+                            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+                                <Text style={styles.cancelBtnText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[styles.saveBtn, (!name.trim() || !phone.trim()) && styles.saveBtnDisabled]} 
+                                onPress={handleSave}
+                                disabled={!name.trim() || !phone.trim()}
+                            >
+                                <Text style={styles.saveBtnText}>Save</Text>
+                            </TouchableOpacity>
+                        </View>
                     </Animated.View>
                 </Animated.View>
             </KeyboardAvoidingView>
@@ -150,20 +144,24 @@ export default function AddContactModal({ visible, onClose, onSave }) {
 const styles = StyleSheet.create({
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        justifyContent: 'center', // Changed to centered
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
         alignItems: 'center',
         padding: 20,
+        width: '100%',
     },
     modalContent: {
-        backgroundColor: '#1C1C1E', 
-        borderRadius: 24, // Consistent radius
+        backgroundColor: '#E2E7EC', 
+        borderRadius: 28,
         width: '100%',
         maxWidth: 400,
         maxHeight: '80%',
         paddingVertical: 20,
-        borderWidth: 1,
-        borderColor: '#333',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.15,
+        shadowRadius: 20,
+        elevation: 8,
     },
     header: {
         flexDirection: 'row',
@@ -173,10 +171,9 @@ const styles = StyleSheet.create({
         marginBottom: 20,
     },
     title: {
-        color: '#fff',
+        color: '#1A1A1A',
         fontSize: 20,
-        fontWeight: 'bold',
-        fontFamily: Fonts.primary,
+        fontWeight: '900',
     },
     closeBtn: {
         padding: 5,
@@ -188,66 +185,66 @@ const styles = StyleSheet.create({
         marginBottom: 20,
     },
     label: {
-        color: '#888',
-        fontSize: 14,
+        color: '#5A6B7C',
+        fontSize: 13,
+        fontWeight: '600',
         marginBottom: 8,
-        fontFamily: Fonts.primary,
+        marginLeft: 4,
     },
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#2C2C2E',
-        borderRadius: 12,
-        paddingHorizontal: 15,
-        height: 50,
-        borderWidth: 1,
-        borderColor: '#333',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 28,
+        paddingHorizontal: 16,
+        height: 56,
     },
     icon: {
-        marginRight: 10,
+        marginRight: 12,
     },
     input: {
         flex: 1,
-        color: '#fff',
-        fontSize: 16,
-        fontFamily: Fonts.primary,
+        color: '#1A1A1A',
+        fontSize: 14,
+        fontWeight: '800',
         height: '100%',
+        padding: 0,
     },
     footer: {
         flexDirection: 'row',
         paddingHorizontal: 20,
         paddingTop: 20,
         borderTopWidth: 1,
-        borderTopColor: '#2C2C2E',
+        borderTopColor: '#BFC7CE',
         gap: 15,
     },
     cancelBtn: {
         flex: 1,
-        height: 50,
-        borderRadius: 12,
-        backgroundColor: '#2C2C2E',
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: 'transparent',
         justifyContent: 'center',
         alignItems: 'center',
     },
     cancelBtnText: {
-        color: '#fff',
+        color: '#5A6B7C',
         fontSize: 16,
-        fontWeight: '600',
+        fontWeight: '800',
     },
     saveBtn: {
         flex: 1,
-        height: 50,
-        borderRadius: 12,
-        backgroundColor: Colors.primaryContainer,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#FFFFFF',
         justifyContent: 'center',
         alignItems: 'center',
     },
     saveBtnDisabled: {
-        backgroundColor: '#333',
+        opacity: 0.5,
     },
     saveBtnText: {
-        color: '#000',
+        color: '#1A1A1A',
         fontSize: 16,
-        fontWeight: 'bold',
+        fontWeight: '900',
     },
 });

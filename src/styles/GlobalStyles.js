@@ -11,7 +11,7 @@ const Colors = {
     onPrimaryContainer: '#09231a',
 
     // Status Colors
-    statusGreen: '#00E676',
+    statusGreen: '#00934c',
     statusRed: '#FF4213',
     statusOrange: '#FF9800',
 

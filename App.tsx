@@ -4,7 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
 import { requestUserPermission, getFCMToken, NotificationListener } from './src/services/fcmService';
 import { AlertProvider } from './src/context/AlertContext';
-import { NavigationProvider, TaskRemovedBehavior } from '@googlemaps/react-native-navigation-sdk';
+import { ThemeProvider } from './src/context/ThemeContext';
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
@@ -22,21 +22,14 @@ function App() {
   }, []);
 
   return (
-    <NavigationProvider
-      termsAndConditionsDialogOptions={{
-        title: 'Navigation Terms',
-        companyName: 'Bentork',
-        showOnlyDisclaimer: true,
-      }}
-      taskRemovedBehavior={TaskRemovedBehavior.CONTINUE_SERVICE}
-    >
-      <SafeAreaProvider>
-        <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+    <SafeAreaProvider>
+      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <ThemeProvider>
         <AlertProvider>
           <AppNavigator />
         </AlertProvider>
-      </SafeAreaProvider>
-    </NavigationProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }
 
