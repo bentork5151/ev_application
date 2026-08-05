@@ -2,6 +2,54 @@ import axios from 'axios';
 import { GOOGLE_MAPS_API_KEY } from '@env';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const MOCK_PLACES_FALLBACK = [
+    {
+        id: 'mock-1',
+        name: 'The Blue Tokai Coffee Roasters',
+        type: 'Cafe',
+        geometry: { location: { lat: 28.5355, lng: 77.3910 } },
+        isOpen: true,
+        rating: 4.6,
+        photoUrl: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=400&q=60'
+    },
+    {
+        id: 'mock-2',
+        name: 'Starbucks Coffee',
+        type: 'Cafe',
+        geometry: { location: { lat: 28.5356, lng: 77.3911 } },
+        isOpen: true,
+        rating: 4.4,
+        photoUrl: 'https://images.unsplash.com/photo-1498804103079-a6351b050096?w=400&q=60'
+    },
+    {
+        id: 'mock-3',
+        name: 'Haldiram\'s Restaurant',
+        type: 'Restaurant',
+        geometry: { location: { lat: 28.5358, lng: 77.3915 } },
+        isOpen: true,
+        rating: 4.2,
+        photoUrl: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&q=60'
+    },
+    {
+        id: 'mock-4',
+        name: 'DLF Mall of India',
+        type: 'Shopping mall',
+        geometry: { location: { lat: 28.5360, lng: 77.3920 } },
+        isOpen: true,
+        rating: 4.7,
+        photoUrl: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=400&q=60'
+    },
+    {
+        id: 'mock-5',
+        name: 'Chaayos - Meri Wali Chai',
+        type: 'Cafe',
+        geometry: { location: { lat: 28.5354, lng: 77.3908 } },
+        isOpen: true,
+        rating: 4.5,
+        photoUrl: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=400&q=60'
+    }
+];
+
 // Using Google Places API (New) v1
 const PLACES_API_URL = 'https://places.googleapis.com/v1/places:searchNearby';
 
@@ -119,8 +167,8 @@ const placesService = {
     fetchNearbyAmenities: async (latitude, longitude) => {
         try {
             if (!GOOGLE_MAPS_API_KEY) {
-                console.warn('PlacesService: Google Maps API Key is missing. Returning empty amenities list.');
-                return [];
+                console.warn('PlacesService: Google Maps API Key is missing. Returning fallback mock amenities.');
+                return MOCK_PLACES_FALLBACK;
             }
 
             // --- 1. Check Local Cache (Time + Distance Validation) ---
@@ -183,7 +231,7 @@ const placesService = {
 
         } catch (error) {
             console.error('PlacesService Global Error during fetchNearbyAmenities:', error.message);
-            return [];
+            return MOCK_PLACES_FALLBACK;
         }
     },
 };

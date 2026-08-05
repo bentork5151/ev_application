@@ -82,6 +82,11 @@ if (localPropertiesFile.exists()) {
 def mySecretKey = localProperties.getProperty('MY_SECRET_KEY') ?: ""
 
 android {
+    externalNativeBuild {
+        cmake {
+            version "4.1.2"
+        }
+    }
     compileOptions {
         coreLibraryDesugaringEnabled true
     }
@@ -99,10 +104,15 @@ android {
         applicationId "com.bentork.application"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 46
-        versionName "1.14.14"
+        versionCode 106
+        versionName "1.16.5"
         // This injects the variable into your Manifest
         manifestPlaceholders = [MY_SECRET_KEY_PLACEHOLDER: mySecretKey]
+        externalNativeBuild {
+            cmake {
+                arguments "-DCMAKE_OBJECT_PATH_MAX=1024"
+            }
+        }
     }
     signingConfigs {
         debug {
@@ -153,6 +163,3 @@ dependencies {
 
 }
 
-configurations.all {
-    exclude group: 'com.google.android.gms', module: 'play-services-maps'
-}

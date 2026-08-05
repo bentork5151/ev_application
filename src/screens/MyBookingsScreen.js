@@ -1,71 +1,96 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, RefreshControl, Modal } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Modal, StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft, Calendar, Clock, Zap, X, Play } from 'lucide-react-native';
-import { Colors } from '../styles/GlobalStyles';
+import { ChevronLeft, Calendar, Clock, Bolt, X, Play } from 'lucide-react-native';
 import { slotBookingApi, slotsApi } from '../services/api';
 import { useAlert } from '../context/AlertContext';
+import { authService } from '../services/auth';
+import LoginRequiredDialog from '../components/LoginRequiredDialog';
+import { useTheme } from '../context/ThemeContext';
+import { isBookingExpired } from '../utils/bookingUtils';
 
-const ITEM_HEIGHT = 165; // Estimated stable height
+const ITEM_HEIGHT = 165; 
 
-// --- Optimized Booking Card ---
-const BookingCard = React.memo(({ booking, onPress, activeTab }) => {
-    // Robust time parsing
-    const formatDateTime = (inputTime) => {
-        const now = new Date();
-        let dateObj = new Date();
-        let timeSet = false;
+const formatDateTime = (inputTime, inputEndTime) => {
+    let dateObj = new Date();
+    let endDateObj = new Date();
+    let timeSet = false;
+    let endTimeSet = false;
 
-        if (!inputTime) {
-            return {
-                date: now.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }),
-                time: '---'
-            };
-        }
-
+    const parseTime = (timeVal) => {
+        let parsedDate = new Date();
+        let isSet = false;
         try {
-            if (Array.isArray(inputTime)) {
-                const [y, M, d, h, m, s] = inputTime;
-                dateObj = new Date(y, M - 1, d, h, m, s || 0);
-                timeSet = true;
-            } else if (typeof inputTime === 'string') {
+            if (Array.isArray(timeVal)) {
+                const [y, M, d, h, m, s] = timeVal;
+                parsedDate = new Date(y, M - 1, d, h, m, s || 0);
+                isSet = true;
+            } else if (typeof timeVal === 'string') {
                 const timeOnlyRegex = /^([01]\d|2[0-3])[:.]([0-5]\d)([:.]([0-5]\d))?$/;
-                if (timeOnlyRegex.test(inputTime)) {
-                    const parts = inputTime.split(/[:.]/).map(Number);
-                    dateObj.setHours(parts[0], parts[1], parts[2] || 0, 0);
-                    timeSet = true;
+                if (timeOnlyRegex.test(timeVal)) {
+                    const parts = timeVal.split(/[:.]/).map(Number);
+                    parsedDate.setHours(parts[0], parts[1], parts[2] || 0, 0);
+                    isSet = true;
                 } else {
-                    const safeDateStr = inputTime.replace(' ', 'T');
+                    const safeDateStr = timeVal.replace(' ', 'T');
                     const parsed = new Date(safeDateStr);
                     if (!isNaN(parsed.getTime())) {
-                        dateObj = parsed;
-                        timeSet = true;
+                        parsedDate = parsed;
+                        isSet = true;
                     }
                 }
-            } else if (inputTime instanceof Date) {
-                dateObj = inputTime;
-                timeSet = true;
-            } else if (typeof inputTime === 'number') {
-                dateObj = new Date(inputTime);
-                timeSet = true;
+            } else if (timeVal instanceof Date) {
+                parsedDate = timeVal;
+                isSet = true;
+            } else if (typeof timeVal === 'number') {
+                parsedDate = new Date(timeVal);
+                isSet = true;
             }
         } catch (e) {
             console.warn("DateTime Parse Failed:", e);
         }
-
-        if (isNaN(dateObj.getTime())) {
-            return {
-                date: now.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }),
-                time: '---'
-            };
-        }
-
-        return {
-            date: dateObj.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }),
-            time: timeSet ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---'
-        };
+        return { parsedDate, isSet };
     };
 
+    const startRes = parseTime(inputTime);
+    dateObj = startRes.parsedDate;
+    timeSet = startRes.isSet;
+
+    if (inputEndTime) {
+        const endRes = parseTime(inputEndTime);
+        endDateObj = endRes.parsedDate;
+        endTimeSet = endRes.isSet;
+    }
+
+    if (isNaN(dateObj.getTime())) {
+        return { date: '---', time: '---' };
+    }
+
+    const dateStr = dateObj.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+    
+    if (timeSet) {
+        const startStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (endTimeSet && !isNaN(endDateObj.getTime())) {
+            const endStr = endDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return {
+                date: dateStr,
+                time: `${startStr} to ${endStr}`
+            };
+        }
+        return {
+            date: dateStr,
+            time: startStr
+        };
+    }
+
+    return {
+        date: dateStr,
+        time: '---'
+    };
+};
+
+const BookingCard = React.memo(({ booking, onPress, activeTab }) => {
+    const { theme, isDark } = useTheme();
     const slotTimeSource = booking.slotStartTime ||
         booking.slot_start_time ||
         booking.slot?.startTime ||
@@ -74,9 +99,16 @@ const BookingCard = React.memo(({ booking, onPress, activeTab }) => {
         booking.startTime ||
         booking.start_time;
 
-    const bookingTimeSource = booking.bookingTime || booking.booking_time;
+    const slotEndTimeSource = booking.slotEndTime ||
+        booking.slot_end_time ||
+        booking.slot?.endTime ||
+        booking.slot?.end_time ||
+        booking.slot?.endTimeOnly ||
+        booking.endTime ||
+        booking.end_time;
 
-    const slotInfo = formatDateTime(slotTimeSource);
+    const bookingTimeSource = booking.bookingTime || booking.booking_time;
+    const slotInfo = formatDateTime(slotTimeSource, slotEndTimeSource);
     const bookingInfo = formatDateTime(bookingTimeSource);
 
     const hasSlot = slotInfo.time !== '---';
@@ -88,60 +120,66 @@ const BookingCard = React.memo(({ booking, onPress, activeTab }) => {
     const connector = booking.connectorType || booking.connector_type || booking.charger?.connectorType || 'CCS 2';
     const power = booking.power || booking.maxPower || booking.charger?.maxPower || '120';
     const currentType = (chargerType.toString().toUpperCase().includes('AC') || connector.includes('Type 2')) ? 'AC' : 'DC';
-
     const status = (booking.status || '').toUpperCase();
+    const expired = isBookingExpired(booking);
+    const displayStatus = expired && (status === 'BOOKED' || status === 'CONFIRMED' || status === 'ACTIVE')
+        ? 'EXPIRED'
+        : (booking.status || 'Unknown');
+
+    const isGreenStatus = !expired && (status === 'BOOKED' || status === 'CONFIRMED' || status === 'ACTIVE');
+    const isRedStatus = status === 'CANCELLED' || status === 'REJECTED';
 
     return (
         <TouchableOpacity
-            style={styles.card}
+            style={[styles.card, { backgroundColor: theme.cardBg }]}
             activeOpacity={activeTab === 'Active' ? 0.7 : 1}
             onPress={() => onPress(booking)}
         >
             <View style={styles.cardHeader}>
-                <Text style={styles.stationName} numberOfLines={1}>
+                <Text style={[styles.stationName, { color: theme.textPrimary }]} numberOfLines={1}>
                     {booking.stationName || booking.station_name || 'Unknown Station'}
                 </Text>
                 <View style={[
                     styles.statusPill,
                     {
-                        backgroundColor: status === 'BOOKED'
-                            ? 'rgba(76, 175, 80, 0.1)'
-                            : (status === 'CANCELLED'
-                                ? 'rgba(244, 67, 54, 0.1)'
-                                : 'rgba(158, 158, 158, 0.1)')
+                        backgroundColor: isGreenStatus
+                            ? 'rgba(0, 176, 116, 0.1)'
+                            : (isRedStatus
+                                ? 'rgba(239, 83, 80, 0.1)'
+                                : 'rgba(90, 107, 124, 0.1)')
                     }
                 ]}>
                     <Text style={[
                         styles.statusText,
                         {
-                            color: status === 'BOOKED'
-                                ? Colors.statusGreen
-                                : (status === 'CANCELLED'
-                                    ? Colors.statusRed
-                                    : '#aaa')
+                            color: isGreenStatus
+                                ? '#00B074'
+                                : (isRedStatus
+                                    ? '#EF5350'
+                                    : theme.textSecondary)
                         }
-                    ]}>{booking.status || 'Unknown'}</Text>
+                    ]}>{displayStatus}</Text>
                 </View>
             </View>
 
             <View style={styles.detailsRow}>
                 <View style={styles.detailItem}>
-                    <Zap size={14} color="#aaa" />
-                    <Text style={styles.detailText}>
+                    <Bolt size={14} color={theme.textSecondary} />
+                    <Text style={[styles.detailText, { color: theme.textSecondary }]}>
                         {connector} • {currentType} ({power}kW)
                     </Text>
                 </View>
             </View>
 
-            <View style={styles.timeRow}>
+            <View style={[styles.timeRow, { backgroundColor: theme.white }]}>
                 <View style={styles.timeBlock}>
-                    <Calendar size={16} color={isPending ? '#888' : Colors.primaryContainer} />
-                    <Text style={[styles.timeText, isPending && { color: '#888' }]}>{displayDate}</Text>
+                    <Calendar size={15} color={isPending ? theme.textSecondary : '#00B074'} />
+                    <Text style={[styles.timeText, { color: theme.textPrimary }, isPending && { color: theme.textSecondary }]}>{displayDate}</Text>
                 </View>
-                <View style={styles.divider} />
+                <View style={[styles.divider, { backgroundColor: theme.divider }]} />
                 <View style={styles.timeBlock}>
-                    <Clock size={16} color={isPending ? '#FF9800' : Colors.primaryContainer} />
-                    <Text style={[styles.timeText, isPending && { color: '#FF9800', fontStyle: 'italic' }]}>{displayTime}</Text>
+                    <Clock size={15} color={isPending ? '#FFA726' : '#00B074'} />
+                    <Text style={[styles.timeText, { color: theme.textPrimary }, isPending && { color: '#FFA726', fontStyle: 'italic' }]}>{displayTime}</Text>
                 </View>
             </View>
         </TouchableOpacity>
@@ -150,6 +188,7 @@ const BookingCard = React.memo(({ booking, onPress, activeTab }) => {
 
 export default function MyBookingsScreen({ navigation }) {
     const insets = useSafeAreaInsets();
+    const { theme, isDark } = useTheme();
     const { showAlert } = useAlert();
     const [bookings, setBookings] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -159,8 +198,20 @@ export default function MyBookingsScreen({ navigation }) {
     const [selectedBooking, setSelectedBooking] = useState(null);
     const [isModalVisible, setIsModalVisible] = useState(false);
 
+    const [isGuest, setIsGuest] = useState(false);
+    const [loginPromptVisible, setLoginPromptVisible] = useState(false);
+
     useEffect(() => {
-        fetchBookings();
+        const checkGuest = async () => {
+            const guest = await authService.isGuestMode();
+            setIsGuest(guest);
+            if (guest) {
+                setLoginPromptVisible(true);
+            } else {
+                fetchBookings();
+            }
+        };
+        checkGuest();
     }, []);
 
     const fetchBookings = async () => {
@@ -185,18 +236,21 @@ export default function MyBookingsScreen({ navigation }) {
             }));
 
             const enrichedBookings = bookingsList.map(booking => {
-                if (booking.slotStartTime || booking.slot?.startTime) return booking;
+                let slotStartTime = booking.slotStartTime || booking.slot?.startTime || booking.slot?.startTimeOnly || booking.startTime;
+                let slotEndTime = booking.slotEndTime || booking.slot?.endTime || booking.slot?.endTimeOnly || booking.endTime;
 
-                if (booking.slotId && booking.chargerId && chargerSlotsMap[booking.chargerId]) {
+                if ((!slotStartTime || !slotEndTime) && booking.slotId && booking.chargerId && chargerSlotsMap[booking.chargerId]) {
                     const matchedSlot = chargerSlotsMap[booking.chargerId].find(s => String(s.id) === String(booking.slotId));
                     if (matchedSlot) {
-                        return {
-                            ...booking,
-                            slotStartTime: matchedSlot.startTime || matchedSlot.start_time || matchedSlot.startTimeOnly
-                        };
+                        slotStartTime = matchedSlot.startTime || matchedSlot.start_time || matchedSlot.startTimeOnly;
+                        slotEndTime = matchedSlot.endTime || matchedSlot.end_time || matchedSlot.endTimeOnly;
                     }
                 }
-                return booking;
+                return {
+                    ...booking,
+                    slotStartTime,
+                    slotEndTime
+                };
             });
 
             setBookings(enrichedBookings);
@@ -240,36 +294,38 @@ export default function MyBookingsScreen({ navigation }) {
             stationId: booking.stationId,
             stationName: booking.stationName,
             chargerId: booking.chargerId,
-            boxId: booking.boxId || booking.charger?.ocppId || booking.chargerId, 
+            boxId: booking.boxId || booking.ocppId || booking.ocpp_id || booking.charger?.ocppId, 
             chargerType: chargerType,
             maxPower: power,
             connectorType: connector || fallbackConnector,
             status: 'Available',
-            bookingId: booking.id
+            bookingId: booking.id,
+            platformFeePerKwh: booking.platformFeePerKwh || booking.charger?.platformFeePerKwh
         });
     };
 
     const handleCancel = async (bookingId) => {
-        Alert.alert(
+        closeModal();
+        showAlert(
             "Cancel Booking",
-            "Are you sure you want to cancel this booking?",
+            "Are you sure you want to cancel this slot booking?",
             [
                 { text: "No", style: "cancel" },
-                {
-                    text: "Yes, Cancel",
+                { 
+                    text: "Yes, Cancel", 
                     style: "destructive",
                     onPress: async () => {
                         try {
                             setCancellingId(bookingId);
+                            setLoading(true);
                             await slotBookingApi.cancelBooking(bookingId);
-                            showAlert("Success", "Booking cancelled successfully.");
-                            closeModal();
+                            showAlert("Success", "Booking cancelled successfully!");
                             fetchBookings();
-                        } catch (error) {
-                            console.error(error);
-                            showAlert("Error", "Failed to cancel booking.");
+                        } catch (err) {
+                            showAlert("Cancellation Failed", err.userMessage || "Failed to cancel booking. Please try again.");
                         } finally {
                             setCancellingId(null);
+                            setLoading(false);
                         }
                     }
                 }
@@ -277,98 +333,77 @@ export default function MyBookingsScreen({ navigation }) {
         );
     };
 
-    const displayedBookings = useMemo(() => {
+    const filteredBookings = useMemo(() => {
         return bookings.filter(b => {
-            const s = (b.status || '').toUpperCase();
-            const isActive = s === 'BOOKED' || s === 'CONFIRMED' || s === 'ACTIVE';
-            return activeTab === 'Active' ? isActive : !isActive;
-        });
+            const expired = isBookingExpired(b);
+            return activeTab === 'Active' ? !expired : expired;
+        }).sort((a, b) => b.id - a.id);
     }, [bookings, activeTab]);
 
-    const renderItem = useCallback(({ item }) => (
-        <BookingCard 
-            booking={item} 
-            onPress={handleBookingPress} 
-            activeTab={activeTab} 
-        />
-    ), [handleBookingPress, activeTab]);
-
-    const getItemLayout = useCallback((data, index) => ({
-        length: ITEM_HEIGHT,
-        offset: ITEM_HEIGHT * index,
-        index,
-    }), []);
-
-    // Re-use derivation logic for modal (localized)
-    const formatDateTime = (inputTime) => {
-        if (!inputTime) return { date: '---', time: '---' };
-        const dateObj = new Date(Array.isArray(inputTime) ? new Date(inputTime[0], inputTime[1]-1, inputTime[2], inputTime[3], inputTime[4]) : inputTime);
-        return {
-            date: dateObj.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }),
-            time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-    };
-
     return (
-        <View style={styles.container}>
-            <View style={[styles.header, { paddingTop: insets.top + 20 }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <ChevronLeft size={24} color="#fff" />
+        <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+            <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+
+            {/* Header */}
+            <View style={styles.header}>
+                <TouchableOpacity style={[styles.backButton, { backgroundColor: theme.cardBg }]} onPress={() => navigation.goBack()}>
+                    <ChevronLeft size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>My Bookings</Text>
+                <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>My Bookings</Text>
+                <View style={{ width: 40 }} />
             </View>
 
-            <View style={styles.tabContainer}>
+            {/* Tabs */}
+            <View style={[styles.tabContainer, { borderBottomColor: theme.divider }]}>
                 <TouchableOpacity
-                    style={[styles.tab, activeTab === 'Active' && styles.activeTab]}
+                    style={[styles.tab, activeTab === 'Active' && [styles.activeTab, { borderBottomColor: theme.textPrimary }]]}
                     onPress={() => setActiveTab('Active')}
                 >
-                    <Text style={[styles.tabText, activeTab === 'Active' && styles.activeTabText]}>Upcoming</Text>
+                    <Text style={[styles.tabText, { color: theme.textSecondary }, activeTab === 'Active' && [styles.activeTabText, { color: theme.textPrimary }]]}>Active</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                    style={[styles.tab, activeTab === 'History' && styles.activeTab]}
+                    style={[styles.tab, activeTab === 'History' && [styles.activeTab, { borderBottomColor: theme.textPrimary }]]}
                     onPress={() => setActiveTab('History')}
                 >
-                    <Text style={[styles.tabText, activeTab === 'History' && styles.activeTabText]}>History</Text>
+                    <Text style={[styles.tabText, { color: theme.textSecondary }, activeTab === 'History' && [styles.activeTabText, { color: theme.textPrimary }]]}>History</Text>
                 </TouchableOpacity>
             </View>
 
             {loading ? (
                 <View style={styles.loaderContainer}>
-                    <ActivityIndicator size="large" color={Colors.primaryContainer} />
+                    <ActivityIndicator size="large" color="#00B074" />
                 </View>
             ) : (
                 <FlatList
-                    data={displayedBookings}
-                    renderItem={renderItem}
+                    data={filteredBookings}
+                    renderItem={({ item }) => <BookingCard booking={item} onPress={handleBookingPress} activeTab={activeTab} />}
                     keyExtractor={(item) => item.id.toString()}
                     contentContainerStyle={styles.listContent}
-                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={Colors.primaryContainer} />}
+                    showsVerticalScrollIndicator={false}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#00B074" />
+                    }
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
-                            <Text style={styles.emptyText}>No {activeTab.toLowerCase()} bookings found.</Text>
+                            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No bookings found</Text>
                         </View>
                     }
-                    getItemLayout={getItemLayout}
-                    initialNumToRender={6}
-                    maxToRenderPerBatch={10}
-                    windowSize={5}
-                    removeClippedSubviews={true}
                 />
             )}
 
+            {/* Details Modal */}
             <Modal
                 transparent={true}
                 visible={isModalVisible}
                 animationType="fade"
                 onRequestClose={closeModal}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                <View style={[styles.modalOverlay, { backgroundColor: theme.overlayBg }]}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
                         {selectedBooking && (() => {
                             const slotTimeSource = selectedBooking.slotStartTime || selectedBooking.slot?.startTime || selectedBooking.startTime;
-                            const slotInfo = formatDateTime(slotTimeSource);
-                            const bookedOn = formatDateTime(selectedBooking.bookingTime);
+                            const slotEndTimeSource = selectedBooking.slotEndTime || selectedBooking.slot?.endTime || selectedBooking.endTime;
+                            const slotInfo = formatDateTime(slotTimeSource, slotEndTimeSource);
                             const chargerType = selectedBooking.chargerType || 'Fast';
                             const connector = selectedBooking.connectorType || 'CCS 2';
                             const power = selectedBooking.power || '120';
@@ -377,33 +412,36 @@ export default function MyBookingsScreen({ navigation }) {
                             return (
                                 <>
                                     <View style={styles.modalHeader}>
-                                        <TouchableOpacity onPress={closeModal} style={styles.closeBtn}>
-                                            <X size={24} color="#fff" />
+                                        <TouchableOpacity onPress={closeModal} style={[styles.closeBtn, { backgroundColor: theme.white }]}>
+                                            <X size={20} color={theme.textPrimary} />
                                         </TouchableOpacity>
-                                        <Text style={styles.modalTitle}>Booking Details</Text>
+                                        <Text style={[styles.modalTitleText, { color: theme.textPrimary }]}>Booking Details</Text>
                                         <View style={{ width: 24 }} />
                                     </View>
 
                                     <View style={styles.modalBody}>
-                                        <Text style={styles.modalStationName}>{selectedBooking.stationName || 'Unknown Station'}</Text>
-                                        <View style={styles.modalTimeContainer}>
+                                        <Text style={[styles.modalStationName, { color: theme.textPrimary }]}>{selectedBooking.stationName || 'Unknown Station'}</Text>
+                                        <View style={[styles.modalTimeContainer, { backgroundColor: theme.white }]}>
                                             <View style={styles.modalTimeBlock}>
-                                                <Calendar size={18} color={Colors.primaryContainer} />
-                                                <Text style={styles.modalTimeText}>{slotInfo.date}</Text>
+                                                <Calendar size={16} color="#00B074" />
+                                                <Text style={[styles.modalTimeText, { color: theme.textPrimary }]}>{slotInfo.date}</Text>
                                             </View>
                                             <View style={styles.modalTimeBlock}>
-                                                <Clock size={18} color={Colors.primaryContainer} />
-                                                <Text style={styles.modalTimeText}>{slotInfo.time}</Text>
+                                                <Clock size={16} color="#00B074" />
+                                                <Text style={[styles.modalTimeText, { color: theme.textPrimary }]}>{slotInfo.time}</Text>
                                             </View>
                                         </View>
 
-                                        <View style={styles.modalInfoRow}><Text style={styles.modalLabel}>Booking ID:</Text><Text style={styles.modalValue}>#{selectedBooking.id}</Text></View>
-                                        <View style={styles.modalInfoRow}><Text style={styles.modalLabel}>Charger:</Text><Text style={styles.modalValue}>{connector} ({power}kW)</Text></View>
-                                        <View style={styles.modalInfoRow}><Text style={styles.modalLabel}>Status:</Text><Text style={[styles.modalValue, { color: status === 'BOOKED' ? Colors.primaryContainer : Colors.statusRed }]}>{status}</Text></View>
+                                        <View style={[styles.modalInfoRow, { borderBottomColor: theme.divider }]}><Text style={[styles.modalLabel, { color: theme.textSecondary }]}>Booking ID</Text><Text style={[styles.modalValue, { color: theme.textPrimary }]}>#{selectedBooking.id}</Text></View>
+                                        <View style={[styles.modalInfoRow, { borderBottomColor: theme.divider }]}><Text style={[styles.modalLabel, { color: theme.textSecondary }]}>Charger</Text><Text style={[styles.modalValue, { color: theme.textPrimary }]}>{connector} ({power}kW)</Text></View>
+                                        <View style={[styles.modalInfoRow, { borderBottomColor: theme.divider }]}>
+                                            <Text style={[styles.modalLabel, { color: theme.textSecondary }]}>Status</Text>
+                                            <Text style={[styles.modalValue, { color: status === 'BOOKED' || status === 'CONFIRMED' ? '#00B074' : '#EF5350', fontWeight: '900' }]}>{status}</Text>
+                                        </View>
 
-                                        <TouchableOpacity style={styles.startBtn} onPress={handleStartNow}>
-                                            <Play size={20} color={Colors.matteBlack} fill={Colors.matteBlack} />
-                                            <Text style={styles.startBtnText}>Start Now</Text>
+                                        <TouchableOpacity style={[styles.startBtn, { backgroundColor: theme.white }]} onPress={handleStartNow}>
+                                            <Play size={16} color={theme.textPrimary} fill={theme.textPrimary} style={{ marginRight: 6 }} />
+                                            <Text style={[styles.startBtnText, { color: theme.textPrimary }]}>Start Now</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity style={styles.modalCancelBtn} onPress={() => handleCancel(selectedBooking.id)}>
                                             <Text style={styles.modalCancelText}>Cancel Booking</Text>
@@ -415,51 +453,67 @@ export default function MyBookingsScreen({ navigation }) {
                     </View>
                 </View>
             </Modal>
+
+            {/* Login Required Dialog */}
+            <LoginRequiredDialog
+                visible={loginPromptVisible}
+                contextMessage="Sign in to view your bookings"
+                onLoginPress={() => {
+                    setLoginPromptVisible(false);
+                    navigation.replace('Login', {
+                        returnRoute: 'MyBookings'
+                    });
+                }}
+                onClose={() => {
+                    setLoginPromptVisible(false);
+                    navigation.goBack();
+                }}
+            />
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#141414ff' },
-    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 20 },
-    backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-    headerTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-    tabContainer: { flexDirection: 'row', paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: '#333', marginBottom: 10 },
+    container: { flex: 1 },
+    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 16, marginTop: 10 },
+    backButton: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+    headerTitle: { fontSize: 22, fontWeight: '900', textAlign: 'center', flex: 1 },
+    tabContainer: { flexDirection: 'row', paddingHorizontal: 20, borderBottomWidth: 1, marginBottom: 10 },
     tab: { marginRight: 25, paddingVertical: 12 },
-    activeTab: { borderBottomWidth: 2, borderBottomColor: Colors.primaryContainer },
-    tabText: { color: '#888', fontSize: 16, fontWeight: '500' },
-    activeTabText: { color: '#fff', fontWeight: 'bold' },
+    activeTab: { borderBottomWidth: 2 },
+    tabText: { fontSize: 16, fontWeight: '600' },
+    activeTabText: { fontWeight: '900' },
     loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     listContent: { padding: 20, paddingBottom: 50 },
-    card: { backgroundColor: '#1E1E1E', borderRadius: 16, padding: 16, marginBottom: 15, borderWidth: 1, borderColor: '#333' },
+    card: { borderRadius: 24, padding: 16, marginBottom: 15 },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-    stationName: { color: '#fff', fontSize: 16, fontWeight: 'bold', flex: 1, marginRight: 10 },
-    statusPill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-    statusText: { fontSize: 12, fontWeight: 'bold', textAlign: 'center', textTransform: 'capitalize' },
+    stationName: { fontSize: 16, fontWeight: '900', flex: 1, marginRight: 10 },
+    statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+    statusText: { fontSize: 11, fontWeight: '800', textAlign: 'center' },
     detailsRow: { flexDirection: 'row', marginBottom: 12 },
     detailItem: { flexDirection: 'row', alignItems: 'center', marginRight: 15 },
-    detailText: { color: '#aaa', fontSize: 13, marginLeft: 6 },
-    timeRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', padding: 12, borderRadius: 12 },
+    detailText: { fontSize: 13, marginLeft: 6, fontWeight: '600' },
+    timeRow: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 16 },
     timeBlock: { flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'center' },
-    divider: { width: 1, height: 20, backgroundColor: '#444', marginHorizontal: 10 },
-    timeText: { color: '#fff', fontSize: 14, fontWeight: '600', marginLeft: 8 },
+    divider: { width: 1, height: 16, marginHorizontal: 10 },
+    timeText: { fontSize: 13, fontWeight: '800', marginLeft: 8 },
     emptyContainer: { padding: 40, alignItems: 'center' },
-    emptyText: { color: '#666', fontSize: 14, fontStyle: 'italic' },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-    modalContent: { width: '100%', backgroundColor: '#1E1E1E', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#333' },
+    emptyText: { fontSize: 14, fontStyle: 'italic' },
+    modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+    modalContent: { width: '100%', borderRadius: 28, padding: 24 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-    closeBtn: { padding: 4 },
-    modalTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+    closeBtn: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
+    modalTitleText: { fontSize: 18, fontWeight: '900' },
     modalBody: { alignItems: 'center' },
-    modalStationName: { color: '#fff', fontSize: 22, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
-    modalTimeContainer: { flexDirection: 'row', backgroundColor: '#2f2f2fff', borderRadius: 16, paddingVertical: 16, width: '100%', justifyContent: 'space-around', marginBottom: 24 },
+    modalStationName: { fontSize: 20, fontWeight: '900', textAlign: 'center', marginBottom: 20 },
+    modalTimeContainer: { flexDirection: 'row', borderRadius: 16, paddingVertical: 14, width: '100%', justifyContent: 'space-around', marginBottom: 20 },
     modalTimeBlock: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    modalTimeText: { color: '#eee', fontSize: 16 },
-    modalInfoRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 12 },
-    modalLabel: { color: '#888', fontSize: 14 },
-    modalValue: { color: '#fff', fontSize: 14 },
-    startBtn: { flexDirection: 'row', backgroundColor: Colors.primaryContainer, width: '100%', paddingVertical: 16, borderRadius: 16, justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 20, marginBottom: 12 },
-    startBtnText: { color: Colors.matteBlack, fontSize: 16, fontWeight: 'bold' },
+    modalTimeText: { fontSize: 14, fontWeight: '800' },
+    modalInfoRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 12, borderBottomWidth: 1, paddingBottom: 10 },
+    modalLabel: { fontSize: 13, fontWeight: '600' },
+    modalValue: { fontSize: 13, fontWeight: '800' },
+    startBtn: { flexDirection: 'row', width: '100%', paddingVertical: 16, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginTop: 16, marginBottom: 12 },
+    startBtnText: { fontSize: 15, fontWeight: '900' },
     modalCancelBtn: { paddingVertical: 12, width: '100%', alignItems: 'center' },
-    modalCancelText: { color: '#ff6767ff', fontSize: 14, fontWeight: '600' }
+    modalCancelText: { color: '#EF5350', fontSize: 14, fontWeight: '800' }
 });

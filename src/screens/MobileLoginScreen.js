@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, ScrollView, Alert, ActivityIndicator, Platform, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, ScrollView, Alert, ActivityIndicator, Platform, StatusBar, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Phone, ChevronLeft, ArrowRight, Lock, Eye, EyeOff, Smartphone } from 'lucide-react-native';
 import { useAlert } from '../context/AlertContext';
 import { authApi, userApi } from '../services/api';
 import { authService } from '../services/auth';
+import { jwtDecode } from 'jwt-decode';
+import PermissionConsentModal from '../components/PermissionConsentModal';
+import { permissionService } from '../services/permissionService';
 
 export default function MobileLoginScreen({ navigation }) {
     const insets = useSafeAreaInsets();
@@ -17,6 +20,38 @@ export default function MobileLoginScreen({ navigation }) {
     const [phoneNumber, setPhoneNumber] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+
+    const [showPermissionModal, setShowPermissionModal] = useState(false);
+    const pendingNavRef = React.useRef(null);
+
+    const checkAndShowDeactivatedDialog = (error, defaultTitle = "Login Failed", defaultMsg = "Invalid credentials.") => {
+        const rawMsg = error?.userMessage || error?.response?.data?.message || error?.message || "";
+        const lowerMsg = rawMsg.toLowerCase();
+        const status = error?.response?.status;
+        const isDeactivated = lowerMsg.includes("deactivated") || 
+                              lowerMsg.includes("disabled") || 
+                              lowerMsg.includes("runtime error") || 
+                              status === 500;
+
+        if (isDeactivated) {
+            showAlert(
+                "Account Deactivated",
+                "Your account has been deactivated. If you believe this is an error or wish to reactivate your account, please contact our support team.",
+                [
+                    { text: "OK", style: "cancel" },
+                    {
+                        text: "Contact Support",
+                        onPress: () => {
+                            Linking.openURL('mailto:support@bentork.com?subject=Deactivated%20Account%20Reactivation');
+                        }
+                    }
+                ]
+            );
+            return true;
+        }
+        showAlert(defaultTitle, rawMsg || defaultMsg);
+        return false;
+    };
 
     const handleLogin = async () => {
         // Basic validation
@@ -44,8 +79,7 @@ export default function MobileLoginScreen({ navigation }) {
         } catch (error) {
             setLoading(false);
             console.error("Phone Login Failed:", error);
-            const msg = error.userMessage || error.response?.data?.message || "Invalid credentials.";
-            showAlert("Login Failed", msg);
+            checkAndShowDeactivatedDialog(error, "Login Failed", "Invalid credentials.");
         }
     };
 
@@ -80,7 +114,6 @@ export default function MobileLoginScreen({ navigation }) {
 
             // 3b. Decode Token to get extra details
             try {
-                const { jwtDecode } = require('jwt-decode');
                 if (token) {
                     const decoded = jwtDecode(token);
                     console.log("3b. Decoded Token:", JSON.stringify(decoded));
@@ -142,19 +175,27 @@ export default function MobileLoginScreen({ navigation }) {
             setLoading(false);
 
             // Check if Terms & Conditions have been accepted on this device
-            const tcAccepted = await authService.hasAcceptedTerms();
+            const executeNav = async () => {
+                const tcAccepted = await authService.hasAcceptedTerms();
+                if (!tcAccepted) {
+                    navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'TermsConsent', params: { nextScreen: 'Home' } }],
+                    });
+                } else {
+                    navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'Home' }],
+                    });
+                }
+            };
 
-            if (!tcAccepted) {
-                // First-time user or device — show T&C before Home
-                navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'TermsConsent', params: { nextScreen: 'Home' } }],
-                });
+            const consentDone = await permissionService.hasCompletedConsent();
+            if (!consentDone) {
+                pendingNavRef.current = executeNav;
+                setShowPermissionModal(true);
             } else {
-                navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'Home' }],
-                });
+                await executeNav();
             }
 
         } catch (error) {
@@ -248,6 +289,30 @@ export default function MobileLoginScreen({ navigation }) {
                 </View>
 
             </ScrollView>
+
+            <PermissionConsentModal
+                visible={showPermissionModal}
+                onComplete={async () => {
+                    setShowPermissionModal(false);
+                    if (pendingNavRef.current) {
+                        const navFn = pendingNavRef.current;
+                        pendingNavRef.current = null;
+                        await navFn();
+                    } else {
+                        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+                    }
+                }}
+                onSkip={async () => {
+                    setShowPermissionModal(false);
+                    if (pendingNavRef.current) {
+                        const navFn = pendingNavRef.current;
+                        pendingNavRef.current = null;
+                        await navFn();
+                    } else {
+                        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+                    }
+                }}
+            />
         </KeyboardAvoidingView>
     );
 }

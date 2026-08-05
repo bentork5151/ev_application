@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, StatusBar, Platform, Alert, Animated, Easing, ActivityIndicator, Linking, Share, Dimensions, LayoutAnimation, UIManager, ScrollView, PanResponder } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, StatusBar, Platform, Alert, Animated, Easing, ActivityIndicator, Linking, Share, Dimensions, LayoutAnimation, UIManager, ScrollView, PanResponder, DeviceEventEmitter, InteractionManager, AppState } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BlurView } from "@react-native-community/blur";
+// import { BlurView } from "@react-native-community/blur";
 // Custom Icons
 // Custom Icons
-import SearchIcon from '../assets/icons/Outlined/search_24dp_E3E3E3_FILL0_wght300_GRAD-25_opsz24.svg';
+import SearchIcon from '../assets/icons/Outlined/search_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg';
 import HelpIcon from '../assets/icons/Outlined/help_24dp_E3E3E3_FILL0_wght300_GRAD-25_opsz24.svg';
 import NavigationIcon from '../assets/icons/Rounded Fill/navigation_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.svg';
 import ShareIcon from '../assets/icons/Rounded Fill/share_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.svg';
@@ -16,19 +16,22 @@ import LibraryIcon from '../assets/icons/Outlined/library_books_24dp_E3E3E3_FILL
 import LibraryIconFilled from '../assets/icons/Rounded Fill/library_books_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.svg';
 import ScanIcon from '../assets/icons/Rounded Fill/qr_code_scanner_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.svg';
 import WalletIcon from '../assets/icons/Outlined/wallet_24dp_E3E3E3_FILL0_wght300_GRAD-25_opsz24.svg';
-import BellIcon from '../assets/icons/Outlined/notifications_24dp_E3E3E3_FILL0_wght300_GRAD0_opsz48.svg';
+import BellIcon from '../assets/icons/Outlined/notifications_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg';
 import StationIcon from '../assets/icons/Outlined/ev_station_24dp_E3E3E3_FILL0_wght300_GRAD0_opsz24.svg';
 import CafeIcon from '../assets/icons/Outlined/local_cafe_24dp_E3E3E3_FILL0_wght300_GRAD0_opsz24.svg';
 import BoltIcon from '../assets/icons/Rounded Fill/bolt_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.svg';
+const AnimatedBoltIcon = Animated.createAnimatedComponent(BoltIcon);
 
 import BoltOutlineIcon from '../assets/icons/Outlined/bolt_24dp_E3E3E3_FILL0_wght300_GRAD0_opsz24.svg';
 import MenuIcon from '../assets/icons/Rounded Fill/menu_24dp_E3E3E3_FILL0_wght300_GRAD-25_opsz24.svg';
 import WarningIcon from '../assets/icons/Rounded Fill/warning_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.svg';
 
 import mapStyle from '../assets/map style/mapStyle.json'
+import mapStyleDark from '../assets/map style/mapStyleDark.json';
 
 import { Colors, GlobalStyles } from '../styles/GlobalStyles';
-import { ChevronRight, ChevronDown, Coffee, Utensils, Menu } from 'lucide-react-native';
+import { useTheme } from '../context/ThemeContext';
+import { ChevronRight, ChevronDown, Coffee, Utensils, Menu, CreditCard } from 'lucide-react-native';
 import { MOCK_CAFES } from '../data/mockCafes';
 import placesService from '../services/placesService';
 
@@ -36,20 +39,27 @@ import LibraryScreen from './LibraryScreen';
 import TestScreen from './TestScreen';
 import SideMenu from '../components/SideMenu';
 import StationCardSkeleton from '../components/StationCardSkeleton';
-import { stationsApi, locationsApi, chargersApi, sessionApi, notificationApi, reviewsApi } from '../services/api';
+import { stationsApi, locationsApi, chargersApi, sessionApi, notificationApi, reviewsApi, rfidApi, slotBookingApi } from '../services/api';
 import { authService } from '../services/auth';
+import { isBookingExpired } from '../utils/bookingUtils';
 import { useAlert } from '../context/AlertContext';
 import BackgroundLocationModal from '../components/BackgroundLocationModal';
+import GetLocation from 'react-native-get-location';
 import remoteConfig from '@react-native-firebase/remote-config'; // Firebase Remote Config
+import { registerFCM } from '../services/fcmService';
+import LoginRequiredDialog from '../components/LoginRequiredDialog';
 
 import { useFocusEffect } from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
-import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, interpolateColor, interpolate, Extrapolation } from 'react-native-reanimated';
 
 import { calculateDistance, getRawDistance } from '../utils/distanceUtils';
 import { getConnectorIcon } from '../utils/connectorUtils';
 import { parseMaintenanceDate, isTodayOrFuture } from '../utils/dateUtils';
 import { shouldRespectMaintenance } from '../utils/devSettings';
+import chargerStatusSync from '../services/chargerStatusSyncService';
+import { LiveStationStatus, LiveConnectorPills } from '../components/LiveStationStatus';
+
+
 
 const StarRating = ({ rating }) => {
     return (
@@ -134,8 +144,397 @@ const StarRating = ({ rating }) => {
 // }
 // ];
 
-export default function HomeScreenMain({ navigation, route }) {
+// Memoized StationMarkers component to prevent heavy map re-renders on every state change
+const StationMarkers = React.memo(({
+    isMaintenance,
+    region,
+    ZOOM_THRESHOLD_CITY,
+    ZOOM_THRESHOLD_MID,
+    clusters,
+    stations,
+    selectedStation,
+    onStationPress,
+    BoltIcon,
+    CafeIcon,
+    Colors,
+    mapRef
+}) => {
+    if (isMaintenance) return null;
+
+    if (region.latitudeDelta > ZOOM_THRESHOLD_CITY) {
+        // STAGE 3: CITY CLUSTERS
+        return clusters.city.map((cluster, index) => (
+            <Marker
+                key={`cluster_city_${index}`}
+                coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
+                onPress={() => {
+                    const newRegion = {
+                        latitude: cluster.latitude,
+                        longitude: cluster.longitude,
+                        latitudeDelta: 0.15,
+                        longitudeDelta: 0.15,
+                    };
+                    onStationPress(null, newRegion);
+                }}
+                zIndex={100}
+                tracksViewChanges={false}
+            >
+                <View style={styles.clusterContainer}>
+                    <Text style={styles.clusterText}>{cluster.count}</Text>
+                    <Text style={{ color: Colors.matteBlack, fontSize: 10, fontWeight: '600' }}>{cluster.name}</Text>
+                </View>
+            </Marker>
+        ));
+
+    } else if (region.latitudeDelta > ZOOM_THRESHOLD_MID) {
+        // STAGE 2: MID CLUSTERS (Neighborhood)
+        return clusters.city.map((cluster, index) => (
+            <Marker
+                key={`cluster_mid_${index}`}
+                coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
+                onPress={() => {
+                    const newRegion = {
+                        latitude: cluster.latitude,
+                        longitude: cluster.longitude,
+                        latitudeDelta: 0.04,
+                        longitudeDelta: 0.04,
+                    };
+                    onStationPress(null, newRegion);
+                }}
+                zIndex={90}
+                tracksViewChanges={false}
+            >
+                <View style={styles.midClusterContainer}>
+                    <Text style={styles.midClusterText}>{cluster.count}</Text>
+                </View>
+            </Marker>
+        ));
+
+    } else {
+        // STAGE 1: INDIVIDUAL PINS
+        // Filter stations so that we only render markers that are within the current map viewport bounds
+        const latDeltaHalf = (region.latitudeDelta || 0.04) / 2;
+        const lngDeltaHalf = (region.longitudeDelta || 0.04) / 2;
+        
+        const minLat = region.latitude - latDeltaHalf;
+        const maxLat = region.latitude + latDeltaHalf;
+        const minLng = region.longitude - lngDeltaHalf;
+        const maxLng = region.longitude + lngDeltaHalf;
+
+        const visibleStations = stations.filter(station => {
+            const lat = Number(station.latitude);
+            const lng = Number(station.longitude);
+            return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
+        });
+
+        return visibleStations.map((station, index) => {
+            const isSelected = String(selectedStation?.id) === String(station.id);
+            let MarkerIcon = BoltIcon;
+            let baseColor = Colors.matteBlack;
+
+            if (station.type === 'CAFE') {
+                MarkerIcon = CafeIcon;
+                baseColor = "#FF9800";
+            }
+
+            const bubbleColor = isSelected ? Colors.white : Colors.matteBlack;
+            const iconFill = isSelected ? Colors.matteBlack : Colors.white;
+            const borderWidth = isSelected ? 0 : 2;
+            const borderColor = isSelected ? 'transparent' : Colors.white;
+
+            return (
+                <Marker
+                    key={`station_${station.id}_${index}_${isSelected ? 'sel' : 'norm'}`}
+                    coordinate={{ latitude: Number(station.latitude), longitude: Number(station.longitude) }}
+                    onPress={() => onStationPress(station)}
+                    zIndex={isSelected ? 20 : 10}
+                    tracksViewChanges={false}
+                >
+                    <View style={[styles.markerContainer, { transform: [{ scale: isSelected ? 1.1 : 1 }] }]}>
+                        <View style={[styles.markerBubble, { backgroundColor: bubbleColor, borderWidth: borderWidth, borderColor: borderColor }]}>
+                            <MarkerIcon
+                                width={22}
+                                height={22}
+                                fill={iconFill}
+                            />
+                        </View>
+                        <View style={[styles.markerArrow, { borderTopColor: isSelected ? bubbleColor : borderColor, marginTop: -1 }]} />
+                    </View>
+                </Marker>
+            );
+        });
+    }
+}, (prev, next) => {
+    return (
+        prev.isMaintenance === next.isMaintenance &&
+        prev.stations.length === next.stations.length &&
+        prev.selectedStation?.id === next.selectedStation?.id &&
+        Math.abs(prev.region.latitude - next.region.latitude) < 0.0001 &&
+        Math.abs(prev.region.longitude - next.region.longitude) < 0.0001
+    );
+});
+
+// High-performance spring scale animation wrapper for Station Cards
+const AnimatedStationCard = React.memo(({ item, allChargers, throttledUserLocation, calculateDistance, handleCardPress }) => {
+    const { theme, isDark } = useTheme();
+    const scaleAnim = React.useRef(new Animated.Value(1)).current;
+    const freshStatusesRef = React.useRef({});
+
+    const handlePressIn = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 0.95, // scale down to 95% for nice press feedback
+            useNativeDriver: true,
+            tension: 400,
+            friction: 15
+        }).start();
+    };
+
+    const handlePressOut = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 1,
+            useNativeDriver: true,
+            tension: 400,
+            friction: 15
+        }).start();
+    };
+
+    // Initialize chargerList from allChargers directly with the backend status.
+    const [chargerList, setChargerList] = useState(() => {
+        return allChargers.filter(c => {
+            const sId = c.stationId || c.station_id || (c.station && (c.station.id || c.station));
+            return String(sId) === String(item.id);
+        });
+    });
+
+    // Tracks whether real-time status has loaded at least once
+    const [statusReady, setStatusReady] = useState(false);
+
+    const chargerListRef = useRef(chargerList);
+    useEffect(() => {
+        chargerListRef.current = chargerList;
+    }, [chargerList]);
+
+    // When allChargers changes, merge all fields including status directly.
+    useEffect(() => {
+        const stationChargers = allChargers.filter(c => {
+            const sId = c.stationId || c.station_id || (c.station && (c.station.id || c.station));
+            return String(sId) === String(item.id);
+        });
+        if (stationChargers.length === 0) return;
+
+        setChargerList(prevList => {
+            const updatedList = [...prevList];
+            stationChargers.forEach(nc => {
+                const idx = updatedList.findIndex(c => c.id === nc.id);
+                if (idx !== -1) {
+                    const { status, ...nonStatus } = nc;
+                    updatedList[idx] = { ...updatedList[idx], ...nonStatus };
+                } else {
+                    updatedList.push(nc);
+                }
+            });
+            return updatedList;
+        });
+    }, [allChargers, item.id]);
+
+    // Fetch real-time status for each charger on mount.
+    const fetchFreshStatuses = useCallback(async () => {
+        const currentList = chargerListRef.current;
+        if (currentList && currentList.length > 0) {
+            try {
+                const updated = await Promise.all(
+                    currentList.map(async (c) => {
+                        const identifier = c.ocppId || c.boxId;
+                        try {
+                            let fresh = null;
+                            if (identifier) {
+                                fresh = await chargersApi.getChargerByOcppId(identifier);
+                            } else {
+                                fresh = await chargersApi.getChargerById(c.id);
+                            }
+                            if (fresh) {
+                                freshStatusesRef.current[c.id] = fresh.status;
+                                return { ...c, ...fresh };
+                            }
+                        } catch (err) {
+                            console.log(`Failed to fetch fresh status for card charger ${c.id}:`, err.message);
+                        }
+                        return c;
+                    })
+                );
+                setChargerList(updated);
+                setStatusReady(true);
+            } catch (err) {
+                console.log("Error fetching card fresh statuses:", err);
+            }
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchFreshStatuses();
+    }, [fetchFreshStatuses]);
+
+    // Listen for targeted station status updates from sync service.
+    useEffect(() => {
+        const subscription = DeviceEventEmitter.addListener(
+            `station_chargers_updated_${item.id}`,
+            ({ chargers: stationChargers }) => {
+                if (stationChargers) {
+                    setChargerList(prevList => {
+                        const updatedList = [...prevList];
+                        stationChargers.forEach(nc => {
+                            const idx = updatedList.findIndex(c => c.id === nc.id);
+                            if (idx !== -1) {
+                                const { status, ...nonStatus } = nc;
+                                updatedList[idx] = { ...updatedList[idx], ...nonStatus };
+                            } else {
+                                updatedList.push(nc);
+                            }
+                        });
+                        return updatedList;
+                    });
+                    // Re-fetch real-time status after sync detects updates
+                    fetchFreshStatuses();
+                }
+            }
+        );
+        return () => subscription.remove();
+    }, [item.id, fetchFreshStatuses]);
+
+    return (
+        <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+            <TouchableOpacity
+                style={{
+                    width: Dimensions.get('window').width * 0.95,
+                    marginRight: 16,
+                    marginVertical: 18,
+                }}
+                activeOpacity={1}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                onPress={() => handleCardPress(item)}
+            >
+                {/* Station Card Shadow Wrapper */}
+                <View style={{
+                    borderRadius: 28,
+                    backgroundColor: theme.white,
+                    shadowColor: '#00000077',
+                    shadowOffset: { width: 0, height: 3 },
+                    shadowOpacity: isDark ? 0.35 : 0.12,
+                    shadowRadius: 18,
+                    elevation: 6,
+                    opacity: 0.98,
+                }}>
+                    {/* Inner Content Clip Container */}
+                    <View style={{ borderRadius: 28, overflow: 'hidden' }}>
+                        <View style={{ padding: 18 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                                <View style={{ flex: 1, paddingRight: 12 }}>
+                                    <Text style={{ color: theme.textPrimary, fontSize: 18, fontWeight: '900', marginBottom: 4, fontFamily: 'DM Sans' }} numberOfLines={1}>{item.name}</Text>
+                                    <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: '600', marginBottom: 8, fontFamily: 'Geist' }} numberOfLines={2}>{item.location}</Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? theme.background : '#E2E7EC', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, marginRight: 8 }}>
+                                            <Text style={{ color: theme.textPrimary, fontSize: 11, fontWeight: '900', marginRight: 2, fontFamily: 'Geist' }}>★ {item.rating || '4.5'}</Text>
+                                        </View>
+                                        <LiveStationStatus stationId={item.id} initialChargers={chargerList} />
+                                        <Text style={{ color: theme.divider, marginHorizontal: 8, fontFamily: 'Geist' }}>|</Text>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            <NavigationIcon width={14} height={14} fill={theme.textSecondary} style={{ marginRight: 4 }} />
+                                            <Text style={{ color: theme.textSecondary, fontSize: 13, fontWeight: '700', fontFamily: 'Geist' }}>
+                                                {throttledUserLocation ? calculateDistance(
+                                                    throttledUserLocation.latitude,
+                                                    throttledUserLocation.longitude,
+                                                    item.latitude,
+                                                    item.longitude
+                                                ) : '--'}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+                                <Image source={{ uri: item.image_url || 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7' }} style={{ width: 88, height: 100, borderRadius: 18, backgroundColor: theme.background }} />
+                            </View>
+                            <View style={{ height: 1, backgroundColor: theme.divider, marginBottom: 12 }} />
+                            <View>
+                                <LiveConnectorPills stationId={item.id} initialChargers={chargerList} />
+                            </View>
+                        </View>
+                    </View>
+                </View>
+            </TouchableOpacity>
+        </Animated.View>
+    );
+});
+
+const AnimatedLoadMoreCard = React.memo(({ onPress }) => {
+    const { theme, isDark } = useTheme();
+    const scaleAnim = React.useRef(new Animated.Value(1)).current;
+
+    const handlePressIn = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 0.95,
+            useNativeDriver: true,
+            tension: 400,
+            friction: 15
+        }).start();
+    };
+
+    const handlePressOut = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 1,
+            useNativeDriver: true,
+            tension: 400,
+            friction: 15
+        }).start();
+    };
+
+    return (
+        <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+            <TouchableOpacity
+                style={{
+                    width: Dimensions.get('window').width * 0.95,
+                    marginRight: 16,
+                    backgroundColor: 'transparent',
+                    borderRadius: 28,
+                }}
+                activeOpacity={0.8}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                onPress={onPress}
+            >
+                <View style={{ 
+                    borderRadius: 28, 
+                    backgroundColor: theme.cardBg, 
+                    padding: 18,
+                    height: 154, 
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: theme.divider,
+                }}>
+                    <View style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 22,
+                        backgroundColor: isDark ? 'rgba(0, 176, 116, 0.2)' : 'rgba(0, 176, 116, 0.1)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginBottom: 10
+                    }}>
+                        <Text style={{ color: '#00B074', fontSize: 22, fontWeight: 'bold' }}>+</Text>
+                    </View>
+                    <Text style={{ color: theme.textPrimary, fontSize: 16, fontWeight: '900', marginBottom: 4 }}>Load More Stations</Text>
+                    <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: '600' }}>Discover 5 more nearest charging stations</Text>
+                </View>
+            </TouchableOpacity>
+        </Animated.View>
+    );
+});
+
+
+export default function HomeScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
+    const { theme, isDark } = useTheme();
+    const activeMapStyle = isDark ? mapStyleDark : mapStyle;
     const { showAlert } = useAlert();
     const [currentTab, setCurrentTab] = useState('Home');
     const [region, setRegion] = useState({
@@ -150,6 +549,7 @@ export default function HomeScreenMain({ navigation, route }) {
     const [allChargers, setAllChargers] = useState([]);
     const [selectedStation, setSelectedStation] = useState(null);
     const [nearbyAmenities, setNearbyAmenities] = useState([]);
+    const [visibleStationsCount, setVisibleStationsCount] = useState(5);
 
     // Throttled location for distance calculation (optimization)
     const [throttledUserLocation, setThrottledUserLocation] = useState(null);
@@ -162,8 +562,13 @@ export default function HomeScreenMain({ navigation, route }) {
     const [liveProgress, setLiveProgress] = useState(0);
     const [isSessionCheckComplete, setIsSessionCheckComplete] = useState(false); // Validating session
     const [unreadCount, setUnreadCount] = useState(0); // State for notifications
+    const [activeBookingCount, setActiveBookingCount] = useState(0); // Active booking count
+    const [isGuest, setIsGuest] = useState(false);
+    const [loginPromptVisible, setLoginPromptVisible] = useState(false);
+    const [loginPromptMessage, setLoginPromptMessage] = useState('');
     const [isLogoAnimEnabled, setIsLogoAnimEnabled] = useState(false); // Remote Config State regarding Logo Animation
     const [isMaintenance, setIsMaintenance] = useState(false); // Remote Config: maintenance_key
+    const [rfidActive, setRfidActive] = useState(false);
     const [maintenanceDate, setMaintenanceDate] = useState(''); // Remote Config: maintenance_date
     const [showSkeleton, setShowSkeleton] = useState(true);
     const [isSideMenuVisible, setIsSideMenuVisible] = useState(false);
@@ -171,37 +576,94 @@ export default function HomeScreenMain({ navigation, route }) {
     const skeletonOpacity = useRef(new Animated.Value(1)).current;
     const contentOpacity = useRef(new Animated.Value(0)).current;
     const bottomUiFade = useRef(new Animated.Value(0)).current; // For fade-in animation
-    const navTabAnim = useSharedValue(0);
+    const navTabAnim = React.useRef(new Animated.Value(0)).current;
     const mapRef = useRef(null);
     const qrGradientAnim = useRef(new Animated.Value(0)).current;
-    
+    const pollingLockedUntil = useRef(0);
+    const lastFetchTime = useRef(0);
+    const lastLocationFetchTime = useRef(0);
+
+
+
+    const fetchUserLocation = async (force = false) => {
+        if (!force && region.userLocation && Date.now() - lastLocationFetchTime.current < 30000) {
+            console.log("Skipping fetchUserLocation as last location fetch was less than 30s ago.");
+            return;
+        }
+        try {
+            const location = await GetLocation.getCurrentPosition({
+                enableHighAccuracy: true,
+                timeout: 15000,
+            });
+            const userLoc = {
+                latitude: location.latitude,
+                longitude: location.longitude,
+            };
+            setThrottledUserLocation(userLoc);
+            setRegion(prev => ({
+                ...prev,
+                userLocation: userLoc
+            }));
+            lastLocationFetchTime.current = Date.now();
+        } catch (error) {
+            console.warn("HomeScreen: Location fetch failed:", error);
+        }
+    };
+
     // Draggable Overlay Logic (Mocking TestScreen behavior)
-    
-    const homeTabStyle = useAnimatedStyle(() => {
-        return {
-            width: interpolate(navTabAnim.value, [0, 1], [64, 30]),
-            backgroundColor: interpolateColor(navTabAnim.value, [0, 1], ['#ffffff', 'rgba(30,30,30,0)'])
-        };
-    });
-    
-    const activityTabStyle = useAnimatedStyle(() => {
-        return {
-            width: interpolate(navTabAnim.value, [0, 1], [30, 70]),
-            backgroundColor: interpolateColor(navTabAnim.value, [0, 1], ['rgba(30,30,30,0)', '#ffffff'])
-        };
-    });
-    
-    const homeIconStyle1 = useAnimatedStyle(() => ({ opacity: interpolate(navTabAnim.value, [0, 1], [1, 0]) }));
-    const homeIconStyle2 = useAnimatedStyle(() => ({ opacity: interpolate(navTabAnim.value, [0, 1], [0, 1]) }));
-    const activityIconStyle1 = useAnimatedStyle(() => ({ opacity: interpolate(navTabAnim.value, [0, 1], [1, 0]) }));
-    const activityIconStyle2 = useAnimatedStyle(() => ({ opacity: interpolate(navTabAnim.value, [0, 1], [0, 1]) }));
-    const mapOpacityStyle = useAnimatedStyle(() => ({ opacity: interpolate(navTabAnim.value, [0, 1], [1, 0]) }));
-    const activityScreenStyle = useAnimatedStyle(() => ({ opacity: interpolate(navTabAnim.value, [0, 1], [0, 1]) }));
-    
-    const pan = useRef(new Animated.Value(300)).current; // Start lower for bounce-in effect
-    const currentY = useRef(0);
-    const sheetHeightRef = useRef(300); // Approximate mini-card height
-    const hasBouncedIn = useRef(false);
+
+    const homeTabStyle = {
+        width: navTabAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [64, 30],
+        }),
+        backgroundColor: navTabAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['#ffffff', 'rgba(30,30,30,0)'],
+        }),
+    };
+
+    const activityTabStyle = {
+        width: navTabAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [30, 70],
+        }),
+        backgroundColor: navTabAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['rgba(30,30,30,0)', '#ffffff'],
+        }),
+    };
+
+    const homeIconStyle1 = { opacity: navTabAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) };
+    const homeIconStyle2 = { opacity: navTabAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) };
+    const activityIconStyle1 = { opacity: navTabAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) };
+    const activityIconStyle2 = { opacity: navTabAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) };
+    const mapOpacityStyle = { opacity: navTabAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) };
+    const activityScreenStyle = { opacity: navTabAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) };
+
+    const sessionCardTranslateY = useRef(new Animated.Value(300)).current;
+
+    const activeBoltPulseAnim = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+        const pulseLoop = Animated.loop(
+            Animated.sequence([
+                Animated.timing(activeBoltPulseAnim, {
+                    toValue: 1,
+                    duration: 1000,
+                    easing: Easing.inOut(Easing.ease),
+                    useNativeDriver: true,
+                }),
+                Animated.timing(activeBoltPulseAnim, {
+                    toValue: 0,
+                    duration: 1000,
+                    easing: Easing.inOut(Easing.ease),
+                    useNativeDriver: true,
+                }),
+            ])
+        );
+        pulseLoop.start();
+        return () => pulseLoop.stop();
+    }, [activeBoltPulseAnim]);
 
     // Live Tracking & Polling
     useEffect(() => {
@@ -215,7 +677,7 @@ export default function HomeScreenMain({ navigation, route }) {
             const m = Math.floor((diffSec % 3600) / 60);
             const s = diffSec % 60;
             const h = Math.floor(diffSec / 3600);
-            
+
             if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
             return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         };
@@ -225,7 +687,7 @@ export default function HomeScreenMain({ navigation, route }) {
             try {
                 const energy = await sessionApi.getSessionEnergy(activeResumeSession.resumeSessionId);
                 setLiveEnergy(energy);
-                
+
                 if (activeResumeSession.selectedKwh && activeResumeSession.selectedKwh > 0) {
                     let progress = (energy / activeResumeSession.selectedKwh) * 100;
                     if (progress > 100) progress = 100;
@@ -262,85 +724,23 @@ export default function HomeScreenMain({ navigation, route }) {
     }, [activeResumeSession]);
 
     // Bounce in the session overlay when a session is found
-
     useEffect(() => {
-        if (activeResumeSession && !hasBouncedIn.current) {
-            hasBouncedIn.current = true;
-            const COLLAPSED_Y = 100; // Visible Peek State
-            Animated.spring(pan, {
-                toValue: COLLAPSED_Y,
-                useNativeDriver: false,
-                speed: 10,
-                bounciness: 6,
-                delay: 500, // Small delay for smooth entry
+        if (activeResumeSession) {
+            Animated.spring(sessionCardTranslateY, {
+                toValue: 0,
+                useNativeDriver: true,
+                friction: 8,
+                tension: 40,
+            }).start();
+        } else {
+            Animated.spring(sessionCardTranslateY, {
+                toValue: 300,
+                useNativeDriver: true,
+                friction: 8,
+                tension: 40,
             }).start();
         }
-    }, [activeResumeSession]);
-
-    useEffect(() => {
-        const id = pan.addListener(({ value }) => {
-            currentY.current = value;
-        });
-        return () => pan.removeListener(id);
-    }, [pan]);
-
-    const panResponder = useRef(
-        PanResponder.create({
-            onMoveShouldSetPanResponder: (e, gs) => Math.abs(gs.dy) > 5,
-            onPanResponderGrant: () => {
-                pan.setOffset(currentY.current);
-                pan.setValue(0);
-            },
-            onPanResponderMove: Animated.event(
-                [null, { dy: pan }],
-                { useNativeDriver: false }
-            ),
-            onPanResponderRelease: (e, gestureState) => {
-                pan.flattenOffset();
-                
-                // Snap boundary settings
-                const EXPANDED_Y = -100; // Pulled Up (Visible above nav)
-                const COLLAPSED_Y = 100;   // Tucked behind nav
-                let toValue = COLLAPSED_Y;
-
-                // If swipe up (negative vy) or dragged more than halfway to expanded
-                if (gestureState.vy < -0.5 || currentY.current < EXPANDED_Y * 0.5) {
-                    toValue = EXPANDED_Y;
-                } else {
-                    toValue = COLLAPSED_Y;
-                }
-
-                Animated.spring(pan, {
-                    toValue,
-                    useNativeDriver: false,
-                    speed: 12,
-                    bounciness: 4,
-                }).start();
-            }
-        })
-    ).current;
-
-    const toggleSession = (targetY) => {
-        Animated.spring(pan, {
-            toValue: targetY,
-            useNativeDriver: false,
-            speed: 14,
-            bounciness: 4,
-        }).start();
-    };
-
-    // Interpolations for dynamic UI elements
-    const expandOpacity = pan.interpolate({
-        inputRange: [-100, 0, 100],
-        outputRange: [1, 0, 0],
-        extrapolate: 'clamp'
-    });
-
-    const collapseOpacity = pan.interpolate({
-        inputRange: [-100, 0, 100],
-        outputRange: [0, 0, 1],
-        extrapolate: 'clamp'
-    });
+    }, [activeResumeSession, sessionCardTranslateY]);
 
     useEffect(() => {
         Animated.timing(qrGradientAnim, {
@@ -349,7 +749,7 @@ export default function HomeScreenMain({ navigation, route }) {
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
         }).start();
-    }, []);
+    }, [qrGradientAnim]);
 
     const qrRotate = qrGradientAnim.interpolate({
         inputRange: [0, 1],
@@ -396,9 +796,9 @@ export default function HomeScreenMain({ navigation, route }) {
         return { city: cityClusters, mid: [] };
     }, [stations]);
 
-    // DERIVE NEAREST 10 STATIONS
+    // DERIVE ALL NEAREST STATIONS SORTED BY DISTANCE (Unlimited to ensure card exists for every map pin)
     const nearestStations = React.useMemo(() => {
-        if (!throttledUserLocation) return stations.slice(0, 10);
+        if (!throttledUserLocation) return stations;
 
         return [...stations]
             .map(s => ({
@@ -410,14 +810,23 @@ export default function HomeScreenMain({ navigation, route }) {
                     s.longitude
                 )
             }))
-            .sort((a, b) => a._distance - b._distance)
-            .slice(0, 10);
+            .sort((a, b) => a._distance - b._distance);
     }, [stations, throttledUserLocation]);
+
+    const displayedStations = React.useMemo(() => {
+        const sliced = nearestStations.slice(0, visibleStationsCount);
+        if (nearestStations.length > visibleStationsCount) {
+            return [...sliced, { id: 'LOAD_MORE_CARD', isLoadMoreCard: true }];
+        }
+        return sliced;
+    }, [nearestStations, visibleStationsCount]);
 
     // Auto-focus nearest station on first location fix
     const hasAutoFocusedRef = useRef(false);
     useEffect(() => {
-        if (throttledUserLocation && nearestStations.length > 0 && !hasAutoFocusedRef.current && !route.params?.foundStationId) {
+        const hasStationIdParam = !!route.params?.foundStationId;
+        const hasStations = nearestStations.length > 0;
+        if (throttledUserLocation && hasStations && !hasAutoFocusedRef.current && !hasStationIdParam) {
             hasAutoFocusedRef.current = true;
             const topStation = nearestStations[0];
             setSelectedStation(topStation);
@@ -430,14 +839,18 @@ export default function HomeScreenMain({ navigation, route }) {
             setRegion(newRegion);
             mapRef.current?.animateToRegion(newRegion, 1200);
         }
-    }, [throttledUserLocation, nearestStations.length > 0]);
+    }, [throttledUserLocation, nearestStations, route.params?.foundStationId]);
 
 
     // Moved Refs to Top Level to satisfy Rules of Hooks
     const isFetchingRef = useRef(false);
     const handleCardScrollRef = useRef(null);
+    const isProgrammaticScrollRef = useRef(null);
+    const programmaticScrollTimeoutRef = useRef(null);
+    const flatListRef = useRef(null);
+
     const onViewableItemsChanged = useRef(({ viewableItems }) => {
-        if (viewableItems.length > 0) {
+        if (viewableItems.length > 0 && !viewableItems[0].item.isLoadMoreCard) {
             handleCardScrollRef.current?.(viewableItems[0].item);
         }
     }).current;
@@ -445,6 +858,19 @@ export default function HomeScreenMain({ navigation, route }) {
 
     // Creative/Dynamic Map Focus Logic for Card Scrolling
     const handleCardScroll = (station) => {
+        // If we are currently scrolling programmatically to a specific station pin,
+        // ignore intermediate viewable items to prevent animation conflicts.
+        if (isProgrammaticScrollRef.current) {
+            if (isProgrammaticScrollRef.current === station.id) {
+                isProgrammaticScrollRef.current = null;
+                if (programmaticScrollTimeoutRef.current) {
+                    clearTimeout(programmaticScrollTimeoutRef.current);
+                    programmaticScrollTimeoutRef.current = null;
+                }
+            }
+            return;
+        }
+
         if (selectedStation?.id === station.id) return;
 
         setSelectedStation(station); // Always highlight the marker
@@ -555,12 +981,17 @@ export default function HomeScreenMain({ navigation, route }) {
                 useNativeDriver: true,
             }).start();
         }
-    }, [isLoading, isSessionCheckComplete]);
+    }, [isLoading, isSessionCheckComplete, bottomUiFade]);
 
     // Fetch Notification Count
     useEffect(() => {
         const fetchNotifications = async () => {
             try {
+                const guest = await authService.isGuestMode();
+                if (guest) {
+                    setUnreadCount(0);
+                    return;
+                }
                 const user = await authService.getUser();
                 if (user) {
                     const countData = await notificationApi.getUnreadCount(user.id || user.userId);
@@ -575,6 +1006,90 @@ export default function HomeScreenMain({ navigation, route }) {
         fetchNotifications();
         const interval = setInterval(fetchNotifications, 30000); // 30s poll
         return () => clearInterval(interval);
+    }, []);
+
+    // Fetch Active Booking Count
+    const fetchActiveBookingsCount = useCallback(async () => {
+        try {
+            const guest = await authService.isGuestMode();
+            if (guest) {
+                setActiveBookingCount(0);
+                return;
+            }
+            const data = await slotBookingApi.getMyBookings();
+            const bookingsList = data || [];
+            const activeCount = bookingsList.filter(booking => {
+                return !isBookingExpired(booking);
+            }).length;
+            setActiveBookingCount(activeCount);
+        } catch (e) {
+            // Silent fail
+            console.log("[HomeScreen] Error fetching active bookings count:", e.message);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchActiveBookingsCount();
+        const interval = setInterval(fetchActiveBookingsCount, 30000); // 30s poll
+        return () => clearInterval(interval);
+    }, [fetchActiveBookingsCount]);
+
+    // Listen for Global API 401/429 Interceptor Events
+    useEffect(() => {
+        const loginSub = DeviceEventEmitter.addListener('show_login_prompt', (msg) => {
+            triggerLoginPrompt(msg);
+        });
+        const toastSub = DeviceEventEmitter.addListener('show_rate_limit_toast', (msg) => {
+            showAlert("Too Many Requests", msg || "Please wait a moment before trying again");
+        });
+        return () => {
+            loginSub.remove();
+            toastSub.remove();
+        };
+    }, []);
+
+    const triggerLoginPrompt = (message = "Please login to access this feature") => {
+        setLoginPromptMessage(message);
+        setLoginPromptVisible(true);
+    };
+
+    useFocusEffect(
+        useCallback(() => {
+            const checkGuestStatus = async () => {
+                const guest = await authService.isGuestMode();
+                setIsGuest(guest);
+            };
+            checkGuestStatus();
+            fetchActiveBookingsCount();
+        }, [fetchActiveBookingsCount])
+    );
+
+    // Initialize FCM Push Notifications on startup/login
+    useEffect(() => {
+        const initFCM = async () => {
+            const guest = await authService.isGuestMode();
+            if (!guest) {
+                registerFCM();
+            }
+        };
+        initFCM();
+    }, []);
+
+    // AppState listener to refresh data when app returns from background
+    useEffect(() => {
+        const handleAppStateChange = (nextAppState) => {
+            if (nextAppState === 'active') {
+                console.log("App returned to foreground, refreshing charger data...");
+                fetchData(true); // Silent update
+                checkActiveSession();
+            }
+        };
+
+        const subscription = AppState.addEventListener('change', handleAppStateChange);
+        return () => {
+            subscription.remove();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -668,32 +1183,76 @@ export default function HomeScreenMain({ navigation, route }) {
 
     useFocusEffect(
         React.useCallback(() => {
-            checkActiveSession();
+            let locationInterval = null;
+            let sessionInterval = null;
+            let syncBatchSub = null;
 
-            // Initial fetch - Only show loader if we have NO data
-            // If data exists, fetch silently to prevent UI refresh
-            fetchData(stations.length > 0);
+            const task = InteractionManager.runAfterInteractions(async () => {
+                const guest = await authService.isGuestMode();
 
-            // Poll every 30 seconds for real-time updates (Reduced from 2s to safe load)
-            const dataInterval = setInterval(() => {
-                fetchData(true); // Silent update
-            }, 30000);
-
-            // Poll session every 10 seconds (Safety Check)
-            const sessionInterval = setInterval(() => {
                 checkActiveSession();
-            }, 10000);
+                checkRfidStatus();
+
+                // Initial fetch - Only show loader if we have NO data
+                fetchData(stations.length > 0);
+
+                if (!guest) {
+                    // Start high-frequency charger status sync (replaces the 30s full data poll)
+                    // Seed the sync cache with existing chargers to prevent spurious first-poll events
+                    chargerStatusSync.seedCache(allChargers);
+                    chargerStatusSync.startSync();
+
+                    // Listen for batch sync updates to keep allChargers ref in sync
+                    syncBatchSub = DeviceEventEmitter.addListener('charger_sync_batch', ({ chargers }) => {
+                        setAllChargers(chargers);
+                    });
+
+                    // Poll session every 10 seconds (Safety Check)
+                    sessionInterval = setInterval(() => {
+                        checkActiveSession();
+                    }, 10000);
+                }
+            });
+
+            // Fetch user location on focus
+            fetchUserLocation();
+
+            // Poll user location every 2 minutes
+            locationInterval = setInterval(() => {
+                fetchUserLocation();
+            }, LOCATION_UPDATE_INTERVAL);
+
+            // Listen for session stop events to clear state immediately
+            const stopSub = DeviceEventEmitter.addListener('session_stopped', (id) => {
+                console.log("HomeScreen received session_stopped for:", id);
+                pollingLockedUntil.current = Date.now() + 20000;
+                setActiveResumeSession(null);
+            });
 
             return () => {
-                clearInterval(dataInterval);
-                clearInterval(sessionInterval);
+                task.cancel();
+                if (locationInterval) clearInterval(locationInterval);
+                chargerStatusSync.stopSync();
+                if (syncBatchSub) syncBatchSub.remove();
+                if (sessionInterval) clearInterval(sessionInterval);
+                stopSub.remove();
             };
-        }, [])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [stations.length])
     );
-    
+
 
 
     const checkActiveSession = async () => {
+        const guest = await authService.isGuestMode();
+        if (guest) {
+            setIsSessionCheckComplete(true);
+            return;
+        }
+        if (Date.now() < pollingLockedUntil.current) {
+            console.log("Skipping active session check: polling is currently locked.");
+            return;
+        }
         try {
             const user = await authService.getUser();
             if (user) {
@@ -710,26 +1269,51 @@ export default function HomeScreenMain({ navigation, route }) {
                         resumeSessionId: activeSession.sessionId,
                         chargerId: activeSession.chargerId,
                         boxId: activeSession.boxId,
+                        stationId: activeSession.stationId,
                         stationName: activeSession.stationName || 'Unknown Station',
                         startTime: activeSession.startTime,
                         selectedKwh: activeSession.selectedKwh, // Critical for % calc
+                        amountEntered: activeSession.amountEntered,
+                        chargingMode: activeSession.chargingMode,
                         planId: activeSession.planId,
                         rate: activeSession.rate,
                         connectorType: activeSession.connectorType,
-                        chargerType: activeSession.chargerType
+                        chargerType: activeSession.chargerType,
+                        durationMin: activeSession.durationMin
                     };
 
                     // If user manually minimized or navigated back, show Overlay
                     setActiveResumeSession(resumeData);
                 } else {
                     setActiveResumeSession(null);
-                    hasBouncedIn.current = false; // Reset if session ends
                 }
             }
         } catch (e) {
             console.log("No active session to resume or error checking:", e.message);
         } finally {
             setIsSessionCheckComplete(true);
+        }
+    };
+
+    const checkRfidStatus = async () => {
+        const guest = await authService.isGuestMode();
+        if (guest) {
+            setRfidActive(false);
+            return;
+        }
+        try {
+            const apps = await rfidApi.getMyRfidApplications();
+            if (apps && apps.length > 0) {
+                const sorted = [...apps].sort((a, b) => b.id - a.id);
+                const latest = sorted[0];
+                const isActive = latest?.assignedCard?.active ?? false;
+                setRfidActive(isActive);
+            } else {
+                setRfidActive(false);
+            }
+        } catch (error) {
+            console.warn("HomeScreen: Failed to fetch RFID status:", error.message);
+            setRfidActive(false);
         }
     };
 
@@ -770,13 +1354,17 @@ export default function HomeScreenMain({ navigation, route }) {
                         status: charger.status,
                         latitude: station.latitude,
                         longitude: station.longitude,
-                        rate: charger.rate || station.rate || '0'
+                        rate: charger.rate || station.rate || '0',
+                        platformFeePerKwh: charger.platformFeePerKwh
                     });
                 } else {
-                    // Fallback to details if no specific charger found
+                    const stationChargers = allChargers.filter(c => {
+                        const sId = c.stationId || c.station_id || (c.station && (c.station.id || c.station));
+                        return String(sId) === String(station.id);
+                    });
                     navigation.navigate('StationDetails', {
                         station: station,
-                        chargers: allChargers,
+                        chargers: stationChargers,
                         nearbyCafes: nearbyAmenities
                     });
                 }
@@ -785,6 +1373,7 @@ export default function HomeScreenMain({ navigation, route }) {
                 navigation.setParams({ foundStationId: null, foundChargerId: null });
             }
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [route.params?.foundStationId, stations]);
 
 
@@ -808,25 +1397,29 @@ export default function HomeScreenMain({ navigation, route }) {
             skeletonOpacity.setValue(1);
             contentOpacity.setValue(0);
         }
-    }, [isLoading, isSessionCheckComplete]);
+    }, [isLoading, isSessionCheckComplete, contentOpacity, skeletonOpacity]);
 
     const handleTabChange = (tab) => {
-        // User Fix: Dismiss Bottom Sheet automatically when Home is clicked
-        // if (tab === 'Home') { setIsSheetVisible(false); } // Logic removed as Sheet doesn't exist
+        // Layout animation for lively layout shifting (capsule expansion & screen fade)
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 
         // Manual Animated control
         setCurrentTab(tab);
 
         // Animate Tab highlight/position
-        navTabAnim.value = withTiming(tab === 'Home' ? 0 : 1, { duration: 250 });
+        Animated.timing(navTabAnim, {
+            toValue: tab === 'Home' ? 0 : 1,
+            duration: 250,
+            useNativeDriver: false, // Color and width interpolation don't always support native driver
+        }).start();
 
         // Animate Overlay Transition: Slide bounce out when not Home, bounce in when Home
         const COLLAPSED_Y = 100;
         const OUT_Y = 300;
-        
-        Animated.spring(pan, {
-            toValue: tab === 'Home' ? COLLAPSED_Y : OUT_Y,
-            useNativeDriver: false,
+
+        Animated.spring(sessionCardTranslateY, {
+            toValue: tab === 'Home' ? 0 : 300,
+            useNativeDriver: true,
             speed: 12,
             bounciness: 4,
         }).start();
@@ -840,17 +1433,26 @@ export default function HomeScreenMain({ navigation, route }) {
             handleTabChange(route.params.tab);
             navigation.setParams({ tab: undefined }); // Clear param
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [route.params?.tab]);
 
     const fetchData = async (silent = false) => {
         if (isFetchingRef.current) return;
+        
+        // Skip silent/background updates if data was fetched less than 30 seconds ago
+        if (silent && stations.length > 0 && (Date.now() - lastFetchTime.current < 30000)) {
+            console.log("Skipping fetchData as last fetch was less than 30s ago.");
+            return;
+        }
+
         isFetchingRef.current = true;
         try {
             if (!silent && stations.length === 0) setIsLoading(true);
             // console.log("Fetching real data from backend..."); // Reduce log spam on polling
 
+            const isGuest = await authService.isGuestMode();
             const token = await authService.getToken();
-            if (!token) {
+            if (!token && !isGuest) {
                 console.warn("No auth token found, skipping API calls and using fallback.");
                 throw new Error("No auth token");
             }
@@ -922,22 +1524,25 @@ export default function HomeScreenMain({ navigation, route }) {
             });
 
             // Fetch dynamic ratings
-            const stationsWithRatings = await Promise.all(mergedStations.map(async (st) => {
-                if (st.type === 'CAFE') return st;
-                try {
-                    const summary = await reviewsApi.getStationRatingSummary(st.id);
-                    if (summary) {
-                        return {
-                            ...st,
-                            rating: summary.averageRating ? Number(summary.averageRating).toFixed(1) : (st.rating || '4.5'),
-                            reviewCount: summary.totalReviews || 0
-                        };
+            let stationsWithRatings = mergedStations;
+            if (!isGuest) {
+                stationsWithRatings = await Promise.all(mergedStations.map(async (st) => {
+                    if (st.type === 'CAFE') return st;
+                    try {
+                        const summary = await reviewsApi.getStationRatingSummary(st.id);
+                        if (summary) {
+                            return {
+                                ...st,
+                                rating: summary.averageRating ? Number(summary.averageRating).toFixed(1) : (st.rating || '4.5'),
+                                reviewCount: summary.totalReviews || 0
+                            };
+                        }
+                        return st;
+                    } catch (e) {
+                        return st;
                     }
-                    return st;
-                } catch (e) {
-                    return st;
-                }
-            }));
+                }));
+            }
 
             if (stationsWithRatings.length === 0) throw new Error("No stations found");
 
@@ -945,12 +1550,38 @@ export default function HomeScreenMain({ navigation, route }) {
 
             // Only update Map Region on INITIAL LOAD (when stations were empty)
             if (stations.length === 0 && stationsWithRatings.length > 0) {
-                const initialRegion = {
-                    latitude: stationsWithRatings[0].latitude,
-                    longitude: stationsWithRatings[0].longitude,
+                let targetStation = stationsWithRatings[0];
+                let initialRegion = {
+                    latitude: targetStation.latitude,
+                    longitude: targetStation.longitude,
                     latitudeDelta: 0.0922,
                     longitudeDelta: 0.0421,
                 };
+
+                if (throttledUserLocation) {
+                    let minDistance = Infinity;
+                    stationsWithRatings.forEach(s => {
+                        const dist = getRawDistance(
+                            throttledUserLocation.latitude,
+                            throttledUserLocation.longitude,
+                            s.latitude,
+                            s.longitude
+                        );
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            targetStation = s;
+                        }
+                    });
+
+                    initialRegion = {
+                        latitude: Number(targetStation.latitude),
+                        longitude: Number(targetStation.longitude),
+                        latitudeDelta: 0.04,
+                        longitudeDelta: 0.04,
+                    };
+                    hasAutoFocusedRef.current = true; // Mark as auto-focused to avoid double animation
+                }
+
                 setRegion(initialRegion);
 
                 // Animate only once
@@ -958,13 +1589,20 @@ export default function HomeScreenMain({ navigation, route }) {
                     mapRef.current?.animateToRegion(initialRegion, 1000);
                 }, 500);
 
-                setSelectedStation(stationsWithRatings[0]);
+                setSelectedStation(targetStation);
             } else if (selectedStation) {
                 // Update currently selected station with new data (to show new rating immediately)
                 const updated = stationsWithRatings.find(s => s.id === selectedStation.id);
                 if (updated) setSelectedStation(updated);
             }
 
+            // Broadcast updated chargers and stations for other screens
+            DeviceEventEmitter.emit('chargers_updated', {
+                chargers: validChargers,
+                stations: stationsWithRatings
+            });
+
+            lastFetchTime.current = Date.now();
         } catch (error) {
             console.error("Fetching real data failed:", error);
             setStations([]);
@@ -977,6 +1615,7 @@ export default function HomeScreenMain({ navigation, route }) {
     };
 
     const handleStationPress = (station) => {
+        isProgrammaticScrollRef.current = station.id;
         setSelectedStation(station);
         const newRegion = {
             latitude: Number(station.latitude),
@@ -986,6 +1625,25 @@ export default function HomeScreenMain({ navigation, route }) {
         };
         setRegion(newRegion);
         mapRef.current?.animateToRegion(newRegion, 1000);
+
+        // Find the index of the pressed station in the list and scroll to it smoothly
+        const index = nearestStations.findIndex(s => s.id === station.id);
+        if (index !== -1) {
+            if (index >= visibleStationsCount) {
+                setVisibleStationsCount(Math.ceil((index + 1) / 5) * 5);
+            }
+            setTimeout(() => {
+                flatListRef.current?.scrollToIndex({ index, animated: true });
+            }, 100);
+        }
+
+        // Set safety timeout to clear lock ref in case the list was already at/near the target
+        if (programmaticScrollTimeoutRef.current) {
+            clearTimeout(programmaticScrollTimeoutRef.current);
+        }
+        programmaticScrollTimeoutRef.current = setTimeout(() => {
+            isProgrammaticScrollRef.current = null;
+        }, 1000);
     };
 
     // Creative/Dynamic Map Focus Logic for Card Scrolling
@@ -996,9 +1654,13 @@ export default function HomeScreenMain({ navigation, route }) {
     const handleCardPress = (station) => {
         const targetStation = station || selectedStation;
         if (targetStation) {
+            const stationChargers = allChargers.filter(c => {
+                const sId = c.stationId || c.station_id || (c.station && (c.station.id || c.station));
+                return String(sId) === String(targetStation.id);
+            });
             navigation.navigate('StationDetails', {
                 station: targetStation,
-                chargers: allChargers,
+                chargers: stationChargers,
                 nearbyCafes: nearbyAmenities
             });
         }
@@ -1029,62 +1691,118 @@ export default function HomeScreenMain({ navigation, route }) {
     const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 0);
     const bottomNavHeight = 80 + (Platform.OS === 'ios' ? safeBottom / 2 : safeBottom);
 
+    const parsedMDate = parseMaintenanceDate(maintenanceDate);
+    const isMaintUpcoming = !!(parsedMDate && isTodayOrFuture(parsedMDate) && !isMaintenance);
+    const isMaintenanceBannerActive = isMaintenance || isMaintUpcoming;
+
     return (
-        <View style={styles.container}>
-            <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+            <StatusBar translucent backgroundColor="transparent" barStyle={isDark ? 'light-content' : 'dark-content'} />
 
-            {/* Header (Solid Matte Black) */}
-            <View style={styles.headerContainer}>
-                {/* <LinearGradient
-                    colors={['#212121ff', '#212121ff', 'hsla(0, 0%, 13%, 0.00)']}
-                    locations={[0, 0.6, 1]}
-                    style={StyleSheet.absoluteFill}
-                /> */}
+            {/* Header (Single Top Floating Glassmorphism Capsule containing Menu, Centered Logo, and Action Buttons) */}
+            <View style={[styles.headerContainer, { backgroundColor: 'transparent', top: Platform.OS === 'ios' ? -10 : 0 }]}>
                 <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
-                    <View style={styles.headerContent}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <TouchableOpacity onPress={() => setIsSideMenuVisible(true)} style={{ marginRight: 15, padding: 5 }}>
-                                <MenuIcon width={28} height={28} fill={Colors.white} />
-                            </TouchableOpacity>
+                    <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: isDark ? '#1d1d1dfc' : theme.white,
+                        borderRadius: 30,
+                        height: 58,
+                        paddingHorizontal: 14,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.25,
+                        shadowRadius: 8,
+                        elevation: 8,
+                        opacity: 0.95,
+                        marginTop: 14,
+                        position: 'relative',
+                    }}>
+                        {/* Left Side: Hamburger Menu */}
+                        <TouchableOpacity 
+                            onPress={() => setIsSideMenuVisible(true)} 
+                            style={{ padding: 4, zIndex: 2 }}
+                            activeOpacity={0.7}
+                        >
+                            <MenuIcon width={26} height={26} fill={theme.textPrimary} />
+                        </TouchableOpacity>
 
+                        {/* Center: Logo (Centered absolutely, size UNCHANGED) */}
+                        <View style={{
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            pointerEvents: 'none',
+                            zIndex: 1,
+                        }}>
                             {isLogoAnimEnabled ? (
                                 <LottieView
                                     source={require('../assets/lottie/bentork_anim.json')}
                                     autoPlay
                                     loop
-                                    style={{ width: 100, height: 40, borderWidth: 1, borderColor: '#dededeff', borderRadius: 8 }}
+                                    style={{ width: 100, height: 40, borderWidth: 1, borderColor: theme.divider, borderRadius: 8 }}
                                     resizeMode="contain"
                                 />
                             ) : (
                                 <Image
                                     source={require('../assets/images/logo.png')}
-                                    style={{ width: 95, height: 35, borderRadius: 8 }}
+                                    style={{ width: 80, height: 28 }}
                                     resizeMode="contain"
-                                    tintColor="#ffffffff"
+                                    tintColor={theme.textPrimary}
                                 />
                             )}
                         </View>
-                        <View style={styles.headerIcons}>
-                            {activeResumeSession && (
-                                <TouchableOpacity
-                                    style={[styles.iconBtn, { backgroundColor: 'rgba(0, 230, 118, 0.1)', padding: 10, borderRadius: 12, marginRight: 0 }]}
-                                    onPress={() => navigation.navigate('ActiveSessions')}
+
+                        {/* Right Side: Action Icons (Card, Search, Notification) */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, zIndex: 2 }}>
+                            {/* RFID Card */}
+                            {currentTab !== 'Activity' && rfidActive && (
+                                <TouchableOpacity 
+                                    style={{ padding: 6 }} 
+                                    onPress={() => navigation.navigate('RfidApplication')}
+                                    activeOpacity={0.7}
                                 >
-                                    <View style={styles.activeIndicatorContainer}>
-                                        <BoltIcon width={22} height={22} fill={Colors.statusGreen} />
-                                        <View style={styles.activePulseDot} />
-                                    </View>
+                                    <CreditCard size={20} color={theme.textPrimary} />
                                 </TouchableOpacity>
                             )}
-                            <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('Search')}>
-                                <SearchIcon width={24} height={24} fill={Colors.white} />
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('Notification')}>
-                                <BellIcon width={24} height={24} fill={Colors.white} />
+
+                            {/* Search */}
+                            {currentTab !== 'Activity' && (
+                                <TouchableOpacity 
+                                    style={{ padding: 6 }} 
+                                    onPress={() => navigation.navigate('Search')}
+                                    activeOpacity={0.7}
+                                >
+                                    <SearchIcon width={20} height={20} fill={theme.textPrimary} />
+                                </TouchableOpacity>
+                            )}
+
+                            {/* Notification */}
+                            <TouchableOpacity
+                                style={{ padding: 6, position: 'relative' }}
+                                onPress={() => {
+                                    if (isGuest) {
+                                        triggerLoginPrompt("Sign in to view your notifications");
+                                    } else {
+                                        navigation.navigate('Notification');
+                                    }
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <BellIcon width={20} height={20} fill={theme.textPrimary} />
                                 {unreadCount > 0 && (
-                                    <View style={styles.badge}>
-                                        <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-                                    </View>
+                                    <View style={{
+                                        position: 'absolute',
+                                        top: 4,
+                                        right: 4,
+                                        width: 7,
+                                        height: 7,
+                                        borderRadius: 4,
+                                        backgroundColor: '#00B074',
+                                    }} />
                                 )}
                             </TouchableOpacity>
                         </View>
@@ -1092,12 +1810,57 @@ export default function HomeScreenMain({ navigation, route }) {
                 </SafeAreaView>
             </View>
 
+            {/* Floating Active Session Button (Positioned Below Top App Bar on the Right) */}
+            {currentTab !== 'Activity' && activeResumeSession && (
+                <TouchableOpacity
+                    style={{
+                        position: 'absolute',
+                        top: Platform.OS === 'ios' ? 115 : 125,
+                        right: 18,
+                        backgroundColor: isDark ? '#1d1d1dfc' : theme.white,
+                        width: 52,
+                        height: 52,
+                        borderRadius: 26,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 3 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 6,
+                        elevation: 8,
+                        zIndex: 100,
+                    }}
+                    onPress={() => navigation.navigate('ActiveSessions')}
+                    activeOpacity={0.8}
+                >
+                    <View style={styles.activeIndicatorContainer}>
+                        <View style={{ width: 22, height: 22, justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+                            {/* Base Green Bolt Icon */}
+                            <BoltIcon width={22} height={22} fill={Colors.statusGreen} />
+                            
+                            {/* Smooth Lighter Green Overlay Bolt Icon */}
+                            <Animated.View style={[StyleSheet.absoluteFill, { opacity: activeBoltPulseAnim }]}>
+                                <BoltIcon width={22} height={22} fill="#86EFAC" />
+                            </Animated.View>
+                        </View>
+
+                        <View style={[
+                            styles.activePulseDot,
+                            {
+                                backgroundColor: Colors.statusGreen,
+                                borderColor: isDark ? '#1d1d1dfc' : theme.white,
+                            }
+                        ]} />
+                    </View>
+                </TouchableOpacity>
+            )}
+
 
             {/* Main Content Area (Map + Activity) */}
             <View style={{ flex: 1, position: 'relative' }}>
 
                 {/* Map (Persisted) */}
-                <Reanimated.View
+                <Animated.View
                     pointerEvents={currentTab === 'Home' ? 'auto' : 'none'}
                     style={[
                         StyleSheet.absoluteFill, mapOpacityStyle
@@ -1106,128 +1869,54 @@ export default function HomeScreenMain({ navigation, route }) {
                     <MapView
                         ref={mapRef}
                         provider={PROVIDER_GOOGLE}
-                        customMapStyle={mapStyle}
+                        customMapStyle={activeMapStyle}
                         mapType="standard"
                         style={styles.map}
                         initialRegion={region}
                         showsTraffic={false}
                         showsIndoors={false}
+                        showsUserLocation={false}
                         onRegionChangeComplete={(r) => setRegion(prev => ({ ...r, userLocation: prev.userLocation }))}
                     >
-                        {(() => {
-                            if (isMaintenance) return null;
-
-                            if (region.latitudeDelta > ZOOM_THRESHOLD_CITY) {
-                                // STAGE 3: CITY CLUSTERS
-                                return clusters.city.map((cluster, index) => (
-                                    <Marker
-                                        key={`cluster_city_${index}`}
-                                        coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
-                                        onPress={() => {
-                                            const newRegion = {
-                                                latitude: cluster.latitude,
-                                                longitude: cluster.longitude,
-                                                latitudeDelta: 0.15,
-                                                longitudeDelta: 0.15,
-                                            };
-                                            setRegion(newRegion);
-                                            mapRef.current?.animateToRegion(newRegion, 1000);
-                                        }}
-                                        zIndex={100}
-                                        tracksViewChanges={false}
-                                    >
-                                        <View style={styles.clusterContainer}>
-                                            <Text style={styles.clusterText}>{cluster.count}</Text>
-                                            <Text style={{ color: Colors.matteBlack, fontSize: 10, fontWeight: '600' }}>{cluster.name}</Text>
-                                        </View>
-                                    </Marker>
-                                ));
-
-                            } else if (region.latitudeDelta > ZOOM_THRESHOLD_MID) {
-                                // STAGE 2: MID CLUSTERS (Neighborhood)
-                                // Currently, mid clusters are not implemented in the new clustering logic.
-                                // Fallback to showing individual pins or city clusters if no mid clusters.
-                                return clusters.city.map((cluster, index) => (
-                                    <Marker
-                                        key={`cluster_mid_${index}`}
-                                        coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
-                                        onPress={() => {
-                                            const newRegion = {
-                                                latitude: cluster.latitude,
-                                                longitude: cluster.longitude,
-                                                latitudeDelta: 0.04,
-                                                longitudeDelta: 0.04,
-                                            };
-                                            setRegion(newRegion);
-                                            mapRef.current?.animateToRegion(newRegion, 800);
-                                        }}
-                                        zIndex={90}
-                                        tracksViewChanges={false}
-                                    >
-                                        <View style={styles.midClusterContainer}>
-                                            <Text style={styles.midClusterText}>{cluster.count}</Text>
-                                        </View>
-                                    </Marker>
-                                ));
-
-                            } else {
-                                // STAGE 1: INDIVIDUAL PINS
-                                return stations.map((station, index) => {
-                                    const isSelected = String(selectedStation?.id) === String(station.id);
-                                    let MarkerIcon = BoltIcon;
-                                    let baseColor = Colors.matteBlack;
-
-                                    if (station.type === 'CAFE') {
-                                        MarkerIcon = CafeIcon;
-                                        baseColor = "#FF9800";
-                                    }
-
-                                    // Active Pin: Background White, Icon Black
-                                    // Inactive Pin: Background MatteBlack, Border White (for contrast), Icon White
-                                    const bubbleColor = isSelected ? Colors.white : Colors.matteBlack;
-                                    const iconFill = isSelected ? Colors.matteBlack : Colors.white;
-                                    const borderWidth = isSelected ? 0 : 2;
-                                    const borderColor = isSelected ? 'transparent' : Colors.white;
-
-                                    return (
-                                        <Marker
-                                            key={`station_${station.id}_${index}_${isSelected ? 'sel' : 'norm'}`}
-                                            coordinate={{ latitude: Number(station.latitude), longitude: Number(station.longitude) }}
-                                            onPress={() => handleStationPress(station)}
-                                            zIndex={isSelected ? 20 : 10}
-                                            tracksViewChanges={false}
-                                        >
-                                            <View style={[styles.markerContainer, { transform: [{ scale: isSelected ? 1.1 : 1 }] }]}>
-                                                <View style={[styles.markerBubble, { backgroundColor: bubbleColor, borderWidth: borderWidth, borderColor: borderColor }]}>
-                                                    <MarkerIcon
-                                                        width={22}
-                                                        height={22}
-                                                        fill={iconFill}
-                                                    />
-                                                </View>
-                                                <View style={[styles.markerArrow, { borderTopColor: isSelected ? bubbleColor : borderColor, marginTop: -1 }]} />
-                                            </View>
-                                        </Marker>
-                                    );
-                                });
-                            }
-                        })()}
+                        <StationMarkers
+                            isMaintenance={isMaintenance}
+                            region={region}
+                            ZOOM_THRESHOLD_CITY={ZOOM_THRESHOLD_CITY}
+                            ZOOM_THRESHOLD_MID={ZOOM_THRESHOLD_MID}
+                            clusters={clusters}
+                            stations={stations}
+                            selectedStation={selectedStation}
+                            onStationPress={(station, newRegion) => {
+                                if (newRegion) {
+                                    setRegion(newRegion);
+                                    mapRef.current?.animateToRegion(newRegion, 800);
+                                } else {
+                                    handleStationPress(station);
+                                }
+                            }}
+                            BoltIcon={BoltIcon}
+                            CafeIcon={CafeIcon}
+                            Colors={Colors}
+                        />
                     </MapView>
-                </Reanimated.View >
+                </Animated.View>
 
                 {/* Floating Controls (Home Only) - Still absolute over Map */}
-                <Reanimated.View
+                <Animated.View
                     pointerEvents={currentTab === 'Home' ? 'box-none' : 'none'}
                     style={
                         [
                             StyleSheet.absoluteFill, mapOpacityStyle, { zIndex: 20 }
                         ]}
                 >
+
+
                     {/* Stations Horizontal Scroll List */}
                     {
                         !activeResumeSession && !isLoading && !isMaintenance && (
                             <Animated.FlatList
-                                data={nearestStations}
+                                ref={flatListRef}
+                                data={displayedStations}
                                 horizontal
                                 pagingEnabled
                                 showsHorizontalScrollIndicator={false}
@@ -1237,115 +1926,32 @@ export default function HomeScreenMain({ navigation, route }) {
                                 keyExtractor={(item, index) => `${item.id}_${index}`}
                                 onViewableItemsChanged={onViewableItemsChanged}
                                 viewabilityConfig={viewabilityConfig}
+                                getItemLayout={(data, index) => {
+                                    const cardWidth = Dimensions.get('window').width * 0.95 + 16;
+                                    return {
+                                        length: cardWidth,
+                                        offset: cardWidth * index,
+                                        index,
+                                    };
+                                }}
                                 renderItem={({ item }) => {
-                                    const stationChargers = allChargers.filter(c => c.stationId === item.id);
-                                    const availableChargers = stationChargers.filter(c => c.status === 'Available' || (!c.occupied && c.availability)).length;
-
-                                    // Enhanced Grouping Logic
-                                    const connectorGroups = {};
-                                    stationChargers.forEach(c => {
-                                        // Normalize Connector Type
-                                        let connType = c.connectorType || c.connector_type;
-                                        const chgTypeRaw = (c.chargerType || c.type || '').toString();
-
-                                        if (!connType) {
-                                            if (chgTypeRaw.includes('CCS')) connType = 'CCS 2';
-                                            else if (chgTypeRaw.includes('Type 2')) connType = 'Type 2';
-                                            else if (chgTypeRaw.includes('AC')) connType = 'Type 2'; // Fallback
-                                            else connType = 'Unknown';
-                                        }
-
-                                        // Normalize Current Type (AC/DC)
-                                        let currentType = 'DC';
-                                        if (chgTypeRaw.includes('AC') || (connType && (connType.includes('Type 2') || connType.includes('3-Pin')))) {
-                                            currentType = 'AC';
-                                        }
-
-                                        const power = c.rate || c.max_power || 0;
-                                        const key = `${connType}-${currentType}`;
-
-                                        if (!connectorGroups[key]) {
-                                            connectorGroups[key] = { connectorType: connType, currentType, power, total: 0, available: 0, busy: 0 };
-                                        }
-                                        connectorGroups[key].total += 1;
-
-                                        const isAvailable = c.status === 'Available' || (!c.occupied && c.availability);
-                                        if (isAvailable) connectorGroups[key].available += 1;
-                                        else if (c.status === 'Busy' || c.occupied === true) connectorGroups[key].busy += 1;
-                                    });
-
-                                    const groupedConnectors = Object.values(connectorGroups);
+                                    if (item.isLoadMoreCard) {
+                                        return (
+                                            <AnimatedLoadMoreCard
+                                                onPress={() => setVisibleStationsCount(prev => prev + 5)}
+                                            />
+                                        );
+                                    }
 
                                     return (
-                                        <TouchableOpacity
-                                            style={{
-                                                width: Dimensions.get('window').width * 0.95,
-                                                marginRight: 16,
-                                                backgroundColor: 'transparent',
-                                                borderRadius: 24,
-                                            }}
-                                            activeOpacity={0.9}
-                                            onPress={() => handleCardPress(item)}
-                                        >
-                                            <View style={{ borderRadius: 36, overflow: 'hidden', backgroundColor: Colors.matteBlack, zIndex: 1 }}>
-                                                {/* <BlurView
-                                                style={StyleSheet.absoluteFill}
-                                                blurType="dark"
-                                                blurAmount={10}
-                                                reducedTransparencyFallbackColor="rgba(30,30,30,0.8)"
-                                            /> */}
-                                                <View style={{ padding: 18 }}>
-                                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                                                        <View style={{ flex: 1, paddingRight: 12 }}>
-                                                            <Text style={{ color: Colors.white, fontSize: 18, fontWeight: '700', marginBottom: 4 }} numberOfLines={1}>{item.name}</Text>
-                                                            <Text style={{ color: '#aaa', fontSize: 12, marginBottom: 8 }} numberOfLines={2}>{item.location}</Text>
-                                                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
-                                                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, marginRight: 8 }}>
-                                                                    <Text style={{ color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginRight: 2 }}>★ {item.rating || '4.5'}</Text>
-                                                                </View>
-                                                                <Text style={{ color: availableChargers > 0 ? Colors.statusGreen : Colors.statusRed, fontWeight: '600', fontSize: 13 }}>{availableChargers > 0 ? 'Available' : 'Busy'}</Text>
-                                                                <Text style={{ color: '#555', marginHorizontal: 8 }}>|</Text>
-                                                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                                    <NavigationIcon width={14} height={14} fill={Colors.white} style={{ marginRight: 4 }} />
-                                                                    <Text style={{ color: Colors.white, fontSize: 13, fontWeight: '600' }}>
-                                                                        {throttledUserLocation ? calculateDistance(
-                                                                            throttledUserLocation.latitude,
-                                                                            throttledUserLocation.longitude,
-                                                                            item.latitude,
-                                                                            item.longitude
-                                                                        ) : '--'}
-                                                                    </Text>
-                                                                </View>
-                                                            </View>
-                                                        </View>
-                                                        <Image source={{ uri: item.image_url || 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7' }} style={{ width: 88, height: 88, borderRadius: 16, backgroundColor: '#333' }} />
-                                                    </View>
-                                                    <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginBottom: 12 }} />
-                                                    <View>
-                                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
-                                                            {groupedConnectors.length > 0 ? (
-                                                                groupedConnectors.map((group, gIndex) => {
-                                                                    const iconColor = group.available > 0 ? Colors.white : (group.busy > 0 ? Colors.statusOrange : '#aaa');
-                                                                    const isOffline = group.available === 0 && group.busy === 0;
-
-                                                                    return (
-                                                                        <View key={gIndex} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.cardBg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, marginRight: 8, marginBottom: 4, opacity: isOffline ? 0.4 : 1 }}>
-                                                                            <Image
-                                                                                source={getConnectorIcon(group.connectorType)}
-                                                                                style={{ width: 20, height: 20, marginRight: 4, tintColor: iconColor }}
-                                                                                resizeMode="contain"
-                                                                            />
-                                                                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>{group.connectorType} • {group.currentType}</Text>
-                                                                        </View>
-                                                                    );
-                                                                })
-                                                            ) : (<Text style={{ color: '#777', fontSize: 12 }}>No Connectors</Text>)}
-                                                        </View>
-                                                    </View>
-                                                </View>
-                                            </View>
-                                        </TouchableOpacity>
-                                    )
+                                        <AnimatedStationCard
+                                            item={item}
+                                            allChargers={allChargers}
+                                            throttledUserLocation={throttledUserLocation}
+                                            calculateDistance={calculateDistance}
+                                            handleCardPress={handleCardPress}
+                                        />
+                                    );
                                 }}
                                 style={{ position: 'absolute', bottom: bottomNavHeight + 10, left: 0, right: 0, zIndex: 10, opacity: contentOpacity }}
                             />
@@ -1353,64 +1959,70 @@ export default function HomeScreenMain({ navigation, route }) {
                     }
 
 
-                </Reanimated.View >
+                </Animated.View>
 
                 {/* Activity Screen (Persisted) */}
-                <Reanimated.View
+                <Animated.View
                     pointerEvents={currentTab === 'Activity' ? 'auto' : 'none'}
                     style={[{ flex: 1, paddingTop: 100, ...StyleSheet.absoluteFillObject }, activityScreenStyle]}
                 >
-                    <LibraryScreen navigation={navigation} />
-                </Reanimated.View >
+                    <LibraryScreen navigation={navigation} activeBookingCount={activeBookingCount} />
+                </Animated.View>
 
-            </View >
+            </View>
+            <View style={[styles.bottomTabBarContainer, { bottom: safeBottom + 6 }]}>
+                {/* Nav Capsule */}
+                <View style={[styles.tabCapsule, { backgroundColor: isDark ? 'rgba(30, 27, 32, 0.92)' : 'rgba(255, 255, 255, 0.92)' }]}>
+                    <TouchableOpacity 
+                        style={[
+                            styles.tabBtn, 
+                            currentTab === 'Home' && [styles.tabBtnActive, { backgroundColor: isDark ? '#A7F3D0' : '#2e2e2e' }]
+                        ]} 
+                        onPress={() => handleTabChange('Home')}
+                        activeOpacity={0.8}
+                    >
+                        {currentTab === 'Home' ? (
+                            <HomeIconFilled width={18} height={18} fill={isDark ? '#1A1A1A' : '#FFFFFF'} />
+                        ) : (
+                            <HomeIcon width={18} height={18} fill={theme.textPrimary} />
+                        )}
+                        {currentTab === 'Home' && <Text style={[styles.tabBtnText, { color: isDark ? '#1A1A1A' : '#FFFFFF' }]}>Home</Text>}
+                    </TouchableOpacity>
 
-            {/* Bottom Nav */}
-            < View style={[styles.bottomNav, { paddingBottom: safeBottom, height: bottomNavHeight }]} >
-                <TouchableOpacity style={styles.navItem} onPress={() => handleTabChange('Home')}>
-                    <Reanimated.View style={[styles.navPill, homeTabStyle]}>
-                        <View style={styles.iconNavContainer}>
-                            <Reanimated.View style={[styles.iconNavWrapper, homeIconStyle1]}><HomeIconFilled width={24} height={24} fill={Colors.matteBlack} /></Reanimated.View>
-                            <Reanimated.View style={[styles.iconNavWrapper, homeIconStyle2]}><HomeIcon width={24} height={24} fill={Colors.white} /></Reanimated.View>
-                        </View>
-                    </Reanimated.View>
-                    <Text style={currentTab === 'Home' ? styles.navTextActive : styles.navText}>Home</Text>
-                </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={[
+                            styles.tabBtn, 
+                            currentTab === 'Activity' && [styles.tabBtnActive, { backgroundColor: isDark ? '#A7F3D0' : '#2e2e2e' }]
+                        ]} 
+                        onPress={() => handleTabChange('Activity')}
+                        activeOpacity={0.8}
+                    >
+                        {currentTab === 'Activity' ? (
+                            <LibraryIconFilled width={18} height={18} fill={isDark ? '#1A1A1A' : '#FFFFFF'} />
+                        ) : (
+                            <LibraryIcon width={18} height={18} fill={theme.textPrimary} />
+                        )}
+                        {currentTab === 'Activity' && <Text style={[styles.tabBtnText, { color: isDark ? '#1A1A1A' : '#FFFFFF' }]}>Activity</Text>}
+                    </TouchableOpacity>
+                </View>
 
+                {/* Floating QR Scanner Button */}
                 <TouchableOpacity 
-                    style={styles.centerNavBtnContainer} 
+                    style={[styles.qrFloatingButton, { backgroundColor: isDark ? 'rgba(30, 27, 32, 0.92)' : 'rgba(255, 255, 255, 0.92)' }]}
                     onPress={() => {
-                        if (isMaintenance) {
+                        if (isGuest) {
+                            triggerLoginPrompt("Sign in to start charging your EV");
+                        } else if (isMaintenance) {
                             showAlert("Maintenance in Progress", "QR Scanning is currently unavailable.");
                         } else {
                             navigation.navigate('QRScanner', { stations, allChargers });
                         }
                     }}
+                    activeOpacity={0.8}
                 >
-                    <View style={[styles.centerNavBtn, { overflow: 'hidden' }]}>
-                        <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ rotate: qrRotate }, { scale: 1.5 }] }]}>
-                            <LinearGradient
-                                colors={Colors.primaryGradient}
-                                locations={[0.6, 1]}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 0, y: 1 }}
-                                style={{ flex: 1 }}
-                            />
-                        </Animated.View>
-                        <ScanIcon width={32} height={32} fill={Colors.matteBlack} />
-                    </View>
+                    <ScanIcon width={22} height={22} fill={theme.textPrimary} />
                 </TouchableOpacity>
-
-                <TouchableOpacity style={styles.navItem} onPress={() => handleTabChange('Activity')}>
-                    <Reanimated.View style={[styles.navPill, activityTabStyle]}>
-                        <View style={styles.iconNavContainer}>
-                            <Reanimated.View style={[styles.iconNavWrapper, activityIconStyle1]}><LibraryIcon width={24} height={24} fill={Colors.white} /></Reanimated.View>
-                            <Reanimated.View style={[styles.iconNavWrapper, activityIconStyle2]}><LibraryIconFilled width={24} height={24} fill={Colors.matteBlack} /></Reanimated.View>
-                        </View>
-                    </Reanimated.View>
-                    <Text style={currentTab === 'Activity' ? styles.navTextActive : styles.navText}>Activity</Text>
-                </TouchableOpacity>
-            </View >
+            </View>
 
 
 
@@ -1423,147 +2035,19 @@ export default function HomeScreenMain({ navigation, route }) {
             {/* Background Location Consent – shown once on first HomeScreen visit */}
             <BackgroundLocationModal
                 visible={showBgLocationModal}
-                onDone={() => setShowBgLocationModal(false)}
+                onDone={() => {
+                    setShowBgLocationModal(false);
+                    fetchUserLocation();
+                }}
             />
 
-            {/* Backdrop Dimmer for Draggable Overlay */}
-            {activeResumeSession && (
-                <Animated.View 
-                    pointerEvents="none"
-                    style={[StyleSheet.absoluteFill, { 
-                        backgroundColor: '#000', 
-                        zIndex: 90, // Just below the card
-                        opacity: pan.interpolate({
-                            inputRange: [0, 180],
-                            outputRange: [0.1, 0], 
-                            extrapolate: 'clamp'
-                        })
-                    }]} 
-                />
-            )}
-
-            {/* Active Session Overlay (Mock Draggable Prototype) */}
-            {
-                activeResumeSession && (
-                    <Animated.View 
-                        style={[styles.mockOverlayWrapper, { 
-                            bottom: 0, 
-                            transform: [{ translateY: pan }]
-                        }]} 
-                        pointerEvents="box-none"
-                    >
-                        <View style={styles.mockOverlayCard} onLayout={(e) => { sheetHeightRef.current = e.nativeEvent.layout.height; }}>
-                            <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
-                                <View style={styles.dragBar} />
-                            </View>
-
-                            <Animated.View style={[styles.mockHeader, { 
-                                justifyContent: 'space-between',
-                                marginTop: pan.interpolate({
-                                    inputRange: [-100, 0, 100],
-                                    outputRange: [0, 10, 18],
-                                    extrapolate: 'clamp'
-                                }),
-                                marginBottom: pan.interpolate({
-                                    inputRange: [-100, 0, 100],
-                                    outputRange: [0, 20, 42],
-                                    extrapolate: 'clamp'
-                                }),
-                            }]}>
-                                <Animated.View style={{ 
-                                    flexDirection: 'row', 
-                                    alignItems: 'flex-start', 
-                                    gap: 8,
-                                    opacity: collapseOpacity,
-                                    height: pan.interpolate({
-                                        inputRange: [-100, 0, 100],
-                                        outputRange: [0, 20, 42],
-                                        extrapolate: 'clamp'
-                                    }),
-                                    overflow: 'hidden'
-                                }}>
-                                    <View style={[styles.mockDot, { marginTop: 6, backgroundColor: Colors.statusGreen }]} />
-                                    <View>
-                                        <Text style={styles.mockTitle}>{activeResumeSession.stationName || 'Charging Station'}</Text>
-                                        <Text style={[styles.mockTitle, { color: '#888', marginTop: 2, fontSize: 11 }]}>
-                                            Status: {activeResumeSession.status || 'Active'}
-                                        </Text>
-                                    </View>
-                                </Animated.View>
-                                <Animated.View style={{ opacity: collapseOpacity }}>
-                                    <TouchableOpacity 
-                                        style={{ padding: 4 }}
-                                        onPress={() => toggleSession(-100)}
-                                    >
-                                        <ChevronRight size={20} color="#999" />
-                                    </TouchableOpacity>
-                                </Animated.View>
-                            </Animated.View>
-
-                            <View style={styles.mockStatsRow}>
-                                <View>
-                                    <Text style={styles.mockLabel}>Energy</Text>
-                                    <Text style={styles.mockValue}>{liveEnergy.toFixed(2)} <Text style={styles.mockUnit}>kWh</Text></Text>
-                                </View>
-                                <View style={{ alignItems: 'flex-end' }}>
-                                    <Text style={styles.mockLabel}>Duration</Text>
-                                    <Text style={styles.mockValue}>{liveDuration}</Text>
-                                </View>
-                            </View>
-
-                            <View style={styles.mockProgressTrack}>
-                                <View style={[styles.mockProgressFill, { width: `${liveProgress}%` }]} />
-                            </View>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, marginBottom: 18 }}>
-                                <Text style={styles.mockProgressInfo}>
-                                    {activeResumeSession.selectedKwh ? `${Math.floor(liveProgress)}% Charged` : 'Continuous Charging'}
-                                </Text>
-                                <Text style={styles.mockProgressDetail}>
-                                    {activeResumeSession.connectorType || 'Unknown'} • {activeResumeSession.chargerType || 'Fast'}
-                                </Text>
-                            </View>
-
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                <Animated.View style={{ opacity: expandOpacity, width: expandOpacity.interpolate({ inputRange: [0, 1], outputRange: [0, 48] }), overflow: 'hidden' }}>
-                                    <TouchableOpacity 
-                                        style={[styles.mockActionBtn, { width: 48, paddingHorizontal: 0 }]}
-                                        onPress={() => toggleSession(100)}
-                                    >
-                                        <ChevronDown size={22} color="#000" />
-                                    </TouchableOpacity>
-                                </Animated.View>
-
-                                <TouchableOpacity 
-                                    style={[styles.mockActionBtn, { flex: 1 }]}
-                                    onPress={() => navigation.navigate('Session', activeResumeSession)}
-                                >
-                                    <Text style={styles.mockActionBtnText}>View Session Details</Text>
-                                </TouchableOpacity>
-
-                                <Animated.View style={{ opacity: collapseOpacity, width: collapseOpacity.interpolate({ inputRange: [0, 1], outputRange: [0, 48] }), overflow: 'hidden' }}>
-                                    <TouchableOpacity 
-                                        style={[styles.mockActionBtn, { width: 48, paddingHorizontal: 0 }]}
-                                        onPress={() => toggleSession(-100)}
-                                    >
-                                        <ChevronRight size={22} color="#000" />
-                                    </TouchableOpacity>
-                                </Animated.View>
-                            </View>
-                        </View>
-                    </Animated.View>
-                )
-            }
             {/* Maintenance Banner – Positioned high but below top bar */}
             {currentTab === 'Home' && !isSideMenuVisible && (() => {
-                const mDate = parseMaintenanceDate(maintenanceDate);
-                const isUpcoming = mDate && isTodayOrFuture(mDate) && !isMaintenance;
-                const showBanner = isMaintenance || isUpcoming;
+                if (!isMaintenanceBannerActive) return null;
 
-                if (!showBanner) return null;
-
-                const isOngoing = isMaintenance; 
+                const isOngoing = isMaintenance;
                 const title = isOngoing ? "Ongoing Maintenance" : "Upcoming Maintenance Break";
-                const subtitle = isOngoing 
+                const subtitle = isOngoing
                     ? "Some services are temporarily unavailable. We appreciate your patience."
                     : `On ${maintenanceDate}, some services will be unavailable. Please plan accordingly.`;
 
@@ -1579,14 +2063,31 @@ export default function HomeScreenMain({ navigation, route }) {
                     </View>
                 );
             })()}
-        </View >
+
+
+
+            {/* Global Login Required Prompt Dialog */}
+            <LoginRequiredDialog
+                visible={loginPromptVisible}
+                contextMessage={loginPromptMessage}
+                onLoginPress={() => {
+                    setLoginPromptVisible(false);
+                    navigation.navigate('Login', {
+                        returnRoute: 'Home',
+                    });
+                }}
+                onClose={() => setLoginPromptVisible(false)}
+            />
+        </View>
     );
 }
 
+
 const styles = StyleSheet.create({
+    
     container: {
         flex: 1,
-        backgroundColor: Colors.matteBlack,
+        backgroundColor: '#D0D6DB',
     },
     map: {
         ...StyleSheet.absoluteFill,
@@ -1596,9 +2097,9 @@ const styles = StyleSheet.create({
         top: 0,
         left: 0,
         right: 0,
-        backgroundColor: Colors.matteBlack, // Set to solid as requested
+        backgroundColor: 'transparent',
         paddingHorizontal: 20,
-        paddingBottom: 15, // Reduced padding as gradient fade is gone
+        paddingBottom: 15,
         zIndex: 10,
         elevation: 0,
     },
@@ -1621,7 +2122,7 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 5,
         elevation: 6,
-    },
+    },  
     maintenanceBannerIcon: {
         width: 36,
         height: 36,
@@ -1648,7 +2149,7 @@ const styles = StyleSheet.create({
     headerContent: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         marginTop: 16,
     },
     logo: {
@@ -1656,8 +2157,22 @@ const styles = StyleSheet.create({
         height: 50,
     },
     headerIcons: {
-        flexDirection: 'row',
+        flexDirection: 'column',
         alignItems: 'center',
+        gap: 10,
+    },
+    headerIconButton: {
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 5,
+        elevation: 3,
+        opacity: 0.9,
     },
     iconBtn: {
         marginLeft: 20,
@@ -1665,22 +2180,22 @@ const styles = StyleSheet.create({
     // Mock Overlay Styles
     mockOverlayWrapper: {
         position: 'absolute',
-        bottom: 0,
         left: 0,
         right: 0,
-        paddingHorizontal: 1,
+        paddingHorizontal: 0,
+        marginBottom: -12,
         zIndex: 100, // Above Map, Behind Navbar (200)
     },
     mockOverlayCard: {
         backgroundColor: Colors.matteBlack,
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
-        padding: 20,
-        paddingBottom: 18,
+        padding: 16,
+        paddingBottom: 16,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
+        shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
-        shadowRadius: 12,
+        shadowRadius: 6,
         elevation: 8,
     },
     mockHeader: {
@@ -1788,6 +2303,43 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontWeight: 'bold',
     },
+    activityBadge: {
+        position: 'absolute',
+        top: -4,
+        right: -4,
+        backgroundColor: Colors.primaryContainer,
+        borderRadius: 9,
+        width: 18,
+        height: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1.5,
+        borderColor: '#121212',
+        zIndex: 10,
+    },
+    activityBadgeText: {
+        color: '#09231a',
+        fontSize: 9,
+        fontWeight: 'bold',
+        fontFamily: 'Montserrat',
+    },
+    rfidFloatingBtn: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 120 : 115,
+        right: 20,
+        backgroundColor: '#303030',
+        width: 58,
+        height: 58,
+        borderRadius: 14,
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 12,
+        shadowColor: "#000",
+        shadowOffset: { width: 10, height: 13 },
+        shadowOpacity: 0.9,
+        shadowRadius: 4,
+        zIndex: 30,
+    },
     searchButton: {
         position: 'absolute',
         top: 100,
@@ -1869,7 +2421,7 @@ const styles = StyleSheet.create({
         left: 5,
         right: 15,
         backgroundColor: Colors.matteBlack,
-        opacity: 0.1,
+        opacity: 0,
         borderRadius: 20,
         padding: 15,
         elevation: 0,
@@ -1978,62 +2530,65 @@ const styles = StyleSheet.create({
     actionText: {
         color: '#fff',
         fontSize: 12,
+        fontFamily: 'Montserrat',
     },
 
-    bottomNav: {
+    bottomTabBarContainer: {
         position: 'absolute',
+        left: 52,
+        right: 52,
         bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: '#1E1E1E',
-        height: 80,
         flexDirection: 'row',
+        alignItems: 'center',
+        zIndex: 200,
+    },
+    tabCapsule: {
+        flex: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.92)',
+        borderRadius: 35,
+        height: 64,
+        flexDirection: 'row',
+        alignItems: 'center',
         justifyContent: 'space-around',
-        alignItems: 'flex-start',
-        paddingTop: 15,
-        borderTopWidth: 1,
-        borderTopColor: '#333',
-        zIndex: 200, // On Top of Everything
-    },
-    navItem: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 70, // Slightly wider to accommodate pill expansion
-    },
-    navPill: {
-        borderRadius: 20,
-        height: 38,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 0,
-        overflow: 'hidden',
-    },
-    navTextActive: {
-        color: Colors.white,
-        fontSize: 12,
-        marginTop: 2,
-    },
-    navText: {
-        color: '#888',
-        fontSize: 12,
-        marginTop: 2,
-    },
-    centerNavBtnContainer: {
-        top: -10,
-        alignItems: 'center',
-    },
-    centerNavBtn: {
-        backgroundColor: '#fff',
-        width: 65,
-        height: 65,
-        borderRadius: 18,
-        justifyContent: 'center',
-        alignItems: 'center',
-        elevation: 5,
+        paddingHorizontal: 8,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 5,
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 5,
+    },
+    tabBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: 48,
+        borderRadius: 24,
+        paddingHorizontal: 16,
+    },
+    tabBtnActive: {
+        color: '#FFFFFF',
+        backgroundColor: '#2e2e2e',
+        paddingHorizontal: 22,
+    },
+    tabBtnText: {
+        fontSize: 13,
+        fontWeight: '900',
+        color: '#FFFFFF',
+        marginLeft: 8,
+    },
+    qrFloatingButton: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: 'rgba(255, 255, 255, 0.92)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginLeft: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 5,
     },
     // Session Snackbar
     sessionSnackbar: {
@@ -2074,10 +2629,12 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: 'bold',
         marginBottom: 2,
+        fontFamily: 'Montserrat',
     },
     snackbarSubtitle: {
         color: '#ccc',
         fontSize: 12,
+        fontFamily: 'Montserrat',
     },
     snackbarAction: {
         backgroundColor: 'rgba(255,255,255,0.1)',
@@ -2089,6 +2646,7 @@ const styles = StyleSheet.create({
         color: Colors.statusGreen,
         fontWeight: 'bold',
         fontSize: 12,
+        fontFamily: 'Montserrat',
     },
     iconNavContainer: {
         width: 24,
@@ -2119,6 +2677,7 @@ const styles = StyleSheet.create({
         color: Colors.matteBlack,
         fontWeight: 'bold',
         fontSize: 22,
+        fontFamily: 'Montserrat',
     },
     // Mid Cluster Styles
     midClusterContainer: {
@@ -2140,6 +2699,7 @@ const styles = StyleSheet.create({
         color: Colors.matteBlack,
         fontWeight: 'bold',
         fontSize: 14,
+        fontFamily: 'Montserrat',
     },
     // Cafe Chips Styles
     cafeChipsContainer: {
@@ -2181,26 +2741,55 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         marginRight: 8,
         maxWidth: 120, // Limit width
+        fontFamily: 'Montserrat',
     },
     cafeRating: {
         color: '#FFD700', // Gold
         fontSize: 10,
         fontWeight: 'bold',
-    },
-    activeIndicatorContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
+        fontFamily: 'Montserrat',
     },
     activePulseDot: {
         width: 8,
         height: 8,
         borderRadius: 4,
-        backgroundColor: Colors.statusGreen,
         position: 'absolute',
         top: -2,
         right: -2,
         borderWidth: 1.5,
-        borderColor: Colors.matteBlack,
-    }
+    },
+    // Persistent Guest Banner
+    guestBanner: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 120 : 95, // float below header bar
+        left: 10,
+        right: 10,
+        height: 44,
+        borderRadius: 12,
+        backgroundColor: 'rgba(57, 226, 155, 0.15)',
+        borderWidth: 1,
+        borderColor: 'rgba(57, 226, 155, 0.3)',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 100,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        elevation: 5,
+    },
+    guestBannerText: {
+        color: '#fff',
+        fontSize: 13,
+        fontWeight: '500',
+        fontFamily: 'Montserrat',
+    },
+    guestBannerActionText: {
+        color: '#39E29B',
+        fontSize: 13,
+        fontWeight: 'bold',
+        fontFamily: 'Montserrat',
+        textDecorationLine: 'underline',
+    },
 });

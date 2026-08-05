@@ -7,6 +7,7 @@ const USER_KEY = 'user_info';
 const ADMIN_TOKEN_KEY = 'admin_token';
 const TC_ACCEPTED_KEY = 'tc_accepted';
 const BG_LOCATION_CONSENT_KEY = 'bg_location_consent_shown';
+const GUEST_MODE_KEY = 'isGuestMode';
 
 export const authService = {
     setToken: async (token) => {
@@ -84,9 +85,27 @@ export const authService = {
         }
     },
 
+    isGuestMode: async () => {
+        try {
+            const val = await AsyncStorage.getItem(GUEST_MODE_KEY);
+            return val === 'true';
+        } catch (e) {
+            console.error('Error reading guest mode flag', e);
+            return false;
+        }
+    },
+
+    setGuestMode: async (isGuest) => {
+        try {
+            await AsyncStorage.setItem(GUEST_MODE_KEY, isGuest ? 'true' : 'false');
+        } catch (e) {
+            console.error('Error saving guest mode flag', e);
+        }
+    },
+
     logout: async () => {
         try {
-            await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, ADMIN_TOKEN_KEY]);
+            await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, ADMIN_TOKEN_KEY, GUEST_MODE_KEY]);
             // Note: We intentionally keep TC_ACCEPTED_KEY so the user doesn't have to
             // re-accept T&C every time they log out and back in on the same device.
         } catch (e) {

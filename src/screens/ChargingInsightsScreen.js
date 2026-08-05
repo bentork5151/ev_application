@@ -1,34 +1,55 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BarChart } from 'react-native-gifted-charts';
-import { ChevronLeft, Zap, TrendingUp, DollarSign, Leaf, MapPin, Calendar, ArrowUpRight } from 'lucide-react-native';
-import { Colors } from '../styles/GlobalStyles';
+import { ChevronLeft, Bolt, DollarSign, Leaf, MapPin } from 'lucide-react-native';
 import statsService from '../services/statsService';
+import { authService } from '../services/auth';
+import LoginRequiredDialog from '../components/LoginRequiredDialog';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const Card = ({ title, value, unit, icon: Icon, color, subtitle }) => (
-    <View style={[styles.statCard, { backgroundColor: Colors.cardBg }]}>
-        <View style={styles.cardHeader}>
-            <View style={[styles.iconBox, { backgroundColor: `${color}20` }]}>
-                <Icon size={20} color={color} />
+const Card = ({ title, value, unit, icon: Icon, color, subtitle }) => {
+    const { theme, isDark } = useTheme();
+    return (
+        <View style={[styles.statCard, { backgroundColor: theme.cardBg }]}>
+            <View style={styles.cardHeader}>
+                <View style={[styles.iconBox, { backgroundColor: theme.white }]}>
+                    <Icon size={18} color={color} />
+                </View>
+                <Text style={[styles.cardTitle, { color: theme.textSecondary }]}>{title}</Text>
             </View>
-            <Text style={styles.cardTitle}>{title}</Text>
+            <View style={styles.cardBottom}>
+                <Text style={[styles.cardValue, { color: theme.textPrimary }]}>{value} <Text style={[styles.cardUnit, { color: theme.textSecondary }]}>{unit}</Text></Text>
+                {subtitle && <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>{subtitle}</Text>}
+            </View>
         </View>
-        <Text style={styles.cardValue}>{value} <Text style={styles.cardUnit}>{unit}</Text></Text>
-        {subtitle && <Text style={styles.cardSubtitle}>{subtitle}</Text>}
-    </View>
-);
+    );
+};
 
 export default function ChargingInsightsScreen({ navigation }) {
     const insets = useSafeAreaInsets();
+    const { theme, isDark } = useTheme();
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [chartData, setChartData] = useState([]);
+    const [isGuest, setIsGuest] = useState(false);
+    const [loginPromptVisible, setLoginPromptVisible] = useState(false);
 
     useEffect(() => {
-        loadData();
+        const checkGuest = async () => {
+            const guest = await authService.isGuestMode();
+            setIsGuest(guest);
+            if (guest) {
+                setLoading(false);
+                setLoginPromptVisible(true);
+            } else {
+                loadData();
+            }
+        };
+        checkGuest();
     }, []);
 
     const loadData = async () => {
@@ -36,16 +57,17 @@ export default function ChargingInsightsScreen({ navigation }) {
             const data = await statsService.getAggregatedStats();
             setStats(data);
 
-            // Prepare Chart Data (Last 7 Sessions or Days)
-            // Reverse to show oldest to newest left-to-right
-            const chartRaw = data.history.slice(0, 7).reverse().map(item => ({
-                value: item.energyDelivered,
-                label: new Date(item.timestamp).getDate().toString(), // Day of month
-                frontColor: Colors.statusGreen,
-                topLabelComponent: () => (
-                    <Text style={{ color: '#fff', fontSize: 10, marginBottom: 2 }}>{item.energyDelivered}</Text>
-                )
-            }));
+            const chartRaw = data.history.slice(0, 7).reverse().map(item => {
+                const energyVal = parseFloat(item.energyDelivered) || 0;
+                return {
+                    value: energyVal,
+                    label: new Date(item.timestamp).getDate().toString(), 
+                    frontColor: '#00B074',
+                    topLabelComponent: () => (
+                        <Text style={{ color: theme.textPrimary, fontSize: 10, marginBottom: 2, fontWeight: '700' }}>{energyVal.toFixed(1)}</Text>
+                    )
+                };
+            });
 
             setChartData(chartRaw);
         } catch (err) {
@@ -57,22 +79,24 @@ export default function ChargingInsightsScreen({ navigation }) {
 
     if (loading) {
         return (
-            <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-                <ActivityIndicator size="large" color={Colors.statusGreen} />
+            <View style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center' }]}>
+                <ActivityIndicator size="large" color="#00B074" />
             </View>
         );
     }
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+            <StatusBar translucent backgroundColor="transparent" barStyle={isDark ? 'light-content' : 'dark-content'} />
+
             {/* Header */}
             <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <ChevronLeft size={28} color="#fff" />
+                <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.backButton, { backgroundColor: theme.cardBg }]}>
+                    <ChevronLeft size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
-                <View>
-                    <Text style={styles.headerTitle}>Charging Insights</Text>
-                    <Text style={styles.headerSubtitle}>Your green impact & savings</Text>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Charging Insights</Text>
+                    <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>Your green impact & savings</Text>
                 </View>
             </View>
 
@@ -81,19 +105,19 @@ export default function ChargingInsightsScreen({ navigation }) {
                 showsVerticalScrollIndicator={false}
             >
                 {/* Green Level Badge */}
-                <View style={styles.levelBadge}>
-                    <Leaf size={16} color={Colors.statusGreen} style={{ marginRight: 6 }} />
-                    <Text style={styles.levelText}>Current Status: <Text style={styles.levelValue}>{stats?.greenLevel}</Text></Text>
+                <View style={[styles.levelBadge, { backgroundColor: theme.cardBg }]}>
+                    <Leaf size={14} color="#00B074" style={{ marginRight: 6 }} />
+                    <Text style={[styles.levelText, { color: theme.textSecondary }]}>Current Status: <Text style={styles.levelValue}>{stats?.greenLevel}</Text></Text>
                 </View>
 
-                {/* Main Stats Grid */}
+                {/* Main Stats Cards (No borders/elevations) */}
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.cardsScroll} contentContainerStyle={{ paddingHorizontal: 20 }}>
                     <Card
                         title="Total Energy"
                         value={stats?.totalEnergy}
                         unit="kWh"
-                        icon={Zap}
-                        color="#FFD700"
+                        icon={Bolt}
+                        color="#FFA726"
                         subtitle={`${stats?.totalSessions} Sessions`}
                     />
                     <View style={{ width: 12 }} />
@@ -102,7 +126,7 @@ export default function ChargingInsightsScreen({ navigation }) {
                         value={stats?.totalCo2Saved}
                         unit="kg"
                         icon={Leaf}
-                        color={Colors.statusGreen}
+                        color="#00B074"
                         subtitle="vs ICE Vehicle"
                     />
                     <View style={{ width: 12 }} />
@@ -111,70 +135,104 @@ export default function ChargingInsightsScreen({ navigation }) {
                         value={`₹${stats?.totalMoneySaved}`}
                         unit=""
                         icon={DollarSign}
-                        color="#4facfe"
+                        color="#0086FF"
                         subtitle="Estimated"
                     />
                 </ScrollView>
 
                 {/* Chart Section */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Energy Trends (Last 7 Sessions)</Text>
-                    <View style={styles.chartContainer}>
+                    <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Energy Trends (Last 7 Sessions)</Text>
+                    <View style={[styles.chartCard, { backgroundColor: theme.cardBg }]}>
                         {chartData.length > 0 ? (
                             <BarChart
                                 data={chartData}
-                                barWidth={28}
+                                barWidth={18}
+                                spacing={12}
+                                initialSpacing={15}
+                                yAxisLabelWidth={30}
                                 noOfSections={4}
                                 barBorderRadius={4}
-                                frontColor={Colors.statusGreen}
+                                frontColor="#00B074"
                                 yAxisThickness={0}
                                 xAxisThickness={0}
-                                yAxisTextStyle={{ color: '#666' }}
-                                xAxisLabelTextStyle={{ color: '#aaa' }}
+                                yAxisTextStyle={{ color: theme.textSecondary }}
+                                xAxisLabelTextStyle={{ color: theme.textSecondary }}
                                 hideRules
                                 isAnimated
-                                height={200}
-                                width={width - 80} // Adjust for padding
+                                height={180}
+                                width={width - 120} 
                             />
                         ) : (
                             <View style={styles.emptyChart}>
-                                <Text style={styles.emptyText}>No charging data yet</Text>
+                                <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No charging data yet</Text>
                             </View>
                         )}
                     </View>
                 </View>
 
-                {/* Recent History */}
+                {/* Recent History Grouped Container Card */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Recent Sessions</Text>
-                    {stats?.history?.length === 0 && (
-                        <Text style={styles.emptyText}>Your charging history will appear here.</Text>
-                    )}
-                    {stats?.history?.map((item) => (
-                        <View key={item.id} style={styles.historyItem}>
-                            <View style={styles.historyLeft}>
-                                <View style={styles.dateBox}>
-                                    <Text style={styles.dateDay}>{new Date(item.timestamp).getDate()}</Text>
-                                    <Text style={styles.dateMonth}>{new Date(item.timestamp).toLocaleString('default', { month: 'short' })}</Text>
-                                </View>
-                                <View>
-                                    <Text style={styles.stationName} numberOfLines={1}>{item.stationName}</Text>
-                                    <View style={styles.metaRow}>
-                                        <MapPin size={12} color="#666" style={{ marginRight: 4 }} />
-                                        <Text style={styles.locationText}>{item.location || 'Unknown'}</Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            <View style={styles.historyRight}>
-                                <Text style={styles.energyText}>{item.energyDelivered} kWh</Text>
-                                <Text style={styles.costText}>-₹{item.cost}</Text>
-                            </View>
+                    <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Recent Sessions</Text>
+                    
+                    {stats?.history?.length === 0 ? (
+                        <View style={[styles.emptyHistoryCard, { backgroundColor: theme.cardBg }]}>
+                            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>Your charging history will appear here.</Text>
                         </View>
-                    ))}
+                    ) : (
+                        <View style={[styles.historyContainerCard, { backgroundColor: theme.cardBg }]}>
+                            {stats?.history?.map((item, index) => {
+                                const itemDate = new Date(item.timestamp);
+                                const dayStr = itemDate.getDate();
+                                const monthStr = MONTHS[itemDate.getMonth()] || 'Jan';
+                                const energyDelivered = (parseFloat(item.energyDelivered) || 0).toFixed(1);
+                                const costVal = (parseFloat(item.cost) || 0).toFixed(2);
+                                const isLast = index === stats.history.length - 1;
+                                
+                                return (
+                                    <View key={item.id || index} style={[styles.historyRow, { borderBottomColor: theme.divider }, isLast && { borderBottomWidth: 0 }]}>
+                                        <View style={styles.historyLeft}>
+                                            <View style={[styles.dateBox, { backgroundColor: theme.white }]}>
+                                                <Text style={[styles.dateDay, { color: theme.textPrimary }]}>{dayStr}</Text>
+                                                <Text style={[styles.dateMonth, { color: theme.textSecondary }]}>{monthStr}</Text>
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={[styles.stationName, { color: theme.textPrimary }]} numberOfLines={1}>{item.stationName}</Text>
+                                                <View style={styles.metaRow}>
+                                                    <MapPin size={12} color={theme.textSecondary} style={{ marginRight: 4 }} />
+                                                    <Text style={[styles.locationText, { color: theme.textSecondary }]}>{item.location || 'Unknown'}</Text>
+                                                </View>
+                                            </View>
+                                        </View>
+
+                                        <View style={styles.historyRight}>
+                                            <Text style={styles.energyText}>{energyDelivered} kWh</Text>
+                                            <Text style={[styles.costText, { color: theme.textSecondary }]}>-₹{costVal}</Text>
+                                        </View>
+                                    </View>
+                                );
+                            })}
+                        </View>
+                    )}
                 </View>
 
             </ScrollView>
+
+            {/* Login Required Dialog */}
+            <LoginRequiredDialog
+                visible={loginPromptVisible}
+                contextMessage="Sign in to view your charging insights"
+                onLoginPress={() => {
+                    setLoginPromptVisible(false);
+                    navigation.replace('Login', {
+                        returnRoute: 'ChargingInsights'
+                    });
+                }}
+                onClose={() => {
+                    setLoginPromptVisible(false);
+                    navigation.goBack();
+                }}
+            />
         </View>
     );
 }
@@ -182,115 +240,101 @@ export default function ChargingInsightsScreen({ navigation }) {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.matteBlack,
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 20,
-        paddingBottom: 20,
-        backgroundColor: Colors.matteBlack,
-        zIndex: 10,
+        paddingBottom: 16,
+        marginTop: 10,
     },
-    backBtn: {
-        marginRight: 16,
-        padding: 4,
+    backButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     headerTitle: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#fff',
+        fontSize: 22,
+        fontWeight: '900',
     },
     headerSubtitle: {
-        fontSize: 14,
-        color: '#888',
+        fontSize: 13,
+        marginTop: 2,
     },
     scrollContent: {
         paddingTop: 10,
     },
-
-    // Level Badge
     levelBadge: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(0, 230, 118, 0.1)',
         alignSelf: 'flex-start',
         marginHorizontal: 20,
         paddingVertical: 6,
         paddingHorizontal: 12,
         borderRadius: 20,
         marginBottom: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(0, 230, 118, 0.2)'
     },
     levelText: {
-        color: '#aaa',
         fontSize: 12,
+        fontWeight: '600',
     },
     levelValue: {
-        color: Colors.statusGreen,
-        fontWeight: 'bold',
+        color: '#00B074',
+        fontWeight: '900',
     },
-
-    // Stats Cards
     cardsScroll: {
-        marginBottom: 30,
+        marginBottom: 24,
     },
     statCard: {
         width: 140,
         height: 140,
         padding: 16,
-        borderRadius: 20,
+        borderRadius: 24,
         justifyContent: 'space-between',
-        // Shadow/Glass effect
-        borderWidth: 1,
-        borderColor: '#333',
     },
     cardHeader: {
-        marginBottom: 8,
+        marginBottom: 4,
     },
     iconBox: {
         width: 36,
         height: 36,
-        borderRadius: 10,
+        borderRadius: 18,
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 8,
     },
     cardTitle: {
-        color: '#888',
         fontSize: 12,
-        fontWeight: '600',
+        fontWeight: '700',
+    },
+    cardBottom: {
+        justifyContent: 'flex-end',
     },
     cardValue: {
-        color: '#fff',
-        fontSize: 22,
-        fontWeight: 'bold',
+        fontSize: 20,
+        fontWeight: '900',
     },
     cardUnit: {
-        fontSize: 14,
-        color: '#666',
-        fontWeight: 'normal',
+        fontSize: 12,
+        fontWeight: '700',
     },
     cardSubtitle: {
-        color: '#666',
         fontSize: 10,
+        marginTop: 2,
     },
-
-    // Sections
     section: {
         paddingHorizontal: 20,
-        marginBottom: 30,
+        marginBottom: 24,
     },
     sectionTitle: {
-        color: '#fff',
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 16,
+        fontSize: 16,
+        fontWeight: '900',
+        marginBottom: 12,
     },
-    chartContainer: {
-        backgroundColor: Colors.cardBg,
-        borderRadius: 20,
+    chartCard: {
+        borderRadius: 28,
         padding: 20,
         alignItems: 'center',
         justifyContent: 'center',
@@ -300,16 +344,21 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-
-    // History List
-    historyItem: {
+    historyContainerCard: {
+        borderRadius: 28,
+        paddingHorizontal: 16,
+    },
+    emptyHistoryCard: {
+        borderRadius: 28,
+        padding: 24,
+        alignItems: 'center',
+    },
+    historyRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        backgroundColor: Colors.cardBg,
-        padding: 16,
-        borderRadius: 16,
-        marginBottom: 12,
+        paddingVertical: 14,
+        borderBottomWidth: 1,
     },
     historyLeft: {
         flexDirection: 'row',
@@ -317,27 +366,24 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     dateBox: {
-        backgroundColor: '#222',
-        borderRadius: 8,
+        borderRadius: 12,
         paddingVertical: 6,
         paddingHorizontal: 10,
         alignItems: 'center',
         marginRight: 12,
     },
     dateDay: {
-        color: '#fff',
-        fontWeight: 'bold',
-        fontSize: 16,
+        fontWeight: '900',
+        fontSize: 15,
     },
     dateMonth: {
-        color: '#888',
         fontSize: 10,
         textTransform: 'uppercase',
+        fontWeight: '700',
     },
     stationName: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '600',
+        fontSize: 14,
+        fontWeight: '800',
         marginBottom: 4,
     },
     metaRow: {
@@ -345,26 +391,24 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     locationText: {
-        color: '#666',
         fontSize: 12,
     },
     historyRight: {
         alignItems: 'flex-end',
+        marginLeft: 10,
     },
     energyText: {
-        color: Colors.statusGreen,
-        fontSize: 16,
-        fontWeight: 'bold',
+        color: '#00B074',
+        fontSize: 15,
+        fontWeight: '900',
         marginBottom: 2,
     },
     costText: {
-        color: '#888',
         fontSize: 12,
+        fontWeight: '600',
     },
     emptyText: {
-        color: '#666',
         textAlign: 'center',
         fontStyle: 'italic',
-        marginTop: 20,
     }
 });

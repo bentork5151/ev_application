@@ -1,43 +1,51 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, Dimensions, Vibration } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, interpolate, Extrapolation } from 'react-native-reanimated';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, Dimensions, Vibration, Animated } from 'react-native';
 import { X, Delete } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
 export default function PinPromptModal({ visible, onClose, onSuccess, mode = 'verify', title }) {
+    const { theme } = useTheme();
     const [pin, setPin] = useState('');
     const [step, setStep] = useState(1); // 1: Enter, 2: Confirm (only for 'set' mode)
     const [firstPin, setFirstPin] = useState('');
     const [error, setError] = useState('');
-    const progress = useSharedValue(0);
+    const progress = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
-        if (visible) {
-            progress.value = withTiming(1, { duration: 200 });
-        } else {
-            progress.value = withTiming(0, { duration: 200 });
-        }
+        Animated.timing(progress, {
+            toValue: visible ? 1 : 0,
+            duration: 200,
+            useNativeDriver: true,
+        }).start();
     }, [visible]);
 
-    const overlayStyle = useAnimatedStyle(() => ({
-        opacity: progress.value,
-    }));
+    const overlayStyle = {
+        opacity: progress,
+    };
 
-    const cardStyle = useAnimatedStyle(() => {
-        const translateY = interpolate(progress.value, [0, 1], [100, 0], Extrapolation.CLAMP);
-        const scale = interpolate(progress.value, [0, 1], [0.9, 1], Extrapolation.CLAMP);
-        const opacity = interpolate(progress.value, [0, 0.5, 1], [0, 0, 1], Extrapolation.CLAMP);
-
-        return {
-            opacity,
-            transform: [
-                { translateY: withSpring(translateY, { damping: 1150, stiffness: 1000 }) },
-                { scale: withSpring(scale, { damping: 1150, stiffness: 1000 }) }
-            ],
-        };
-    });
+    const cardStyle = {
+        opacity: progress.interpolate({
+            inputRange: [0, 0.5, 1],
+            outputRange: [0, 0, 1],
+        }),
+        transform: [
+            {
+                translateY: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [100, 0],
+                }),
+            },
+            {
+                scale: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.9, 1],
+                }),
+            },
+        ],
+    };
 
     useEffect(() => {
         if (visible) {
@@ -58,7 +66,6 @@ export default function PinPromptModal({ visible, onClose, onSuccess, mode = 've
             setPin(newPin);
 
             if (newPin.length === 4) {
-                // Determine action based on mode
                 if (mode === 'verify') {
                     verifyPin(newPin);
                 } else if (mode === 'set') {
@@ -98,7 +105,7 @@ export default function PinPromptModal({ visible, onClose, onSuccess, mode = 've
             setFirstPin(inputPin);
             setPin('');
             setStep(2);
-            setError(''); // Clear any previous errors
+            setError('');
         } else {
             if (inputPin === firstPin) {
                 savePin(inputPin);
@@ -126,30 +133,29 @@ export default function PinPromptModal({ visible, onClose, onSuccess, mode = 've
     };
 
     const renderDot = (index) => (
-        <View style={[styles.dot, pin.length > index && styles.dotActive]} />
+        <View style={[styles.dot, { borderColor: theme.divider }, pin.length > index && styles.dotActive]} />
     );
 
     const renderKey = (num) => (
-        <TouchableOpacity key={num} style={styles.key} onPress={() => handlePress(num)} activeOpacity={0.7}>
-            <Text style={styles.keyText}>{num}</Text>
+        <TouchableOpacity key={num} style={[styles.key, { backgroundColor: theme.white }]} onPress={() => handlePress(num)} activeOpacity={0.7}>
+            <Text style={[styles.keyText, { color: theme.textPrimary }]}>{num}</Text>
         </TouchableOpacity>
     );
 
     return (
         <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-            <Animated.View style={[styles.container, overlayStyle]}>
-                <Animated.View style={[styles.content, cardStyle]}>
+            <Animated.View style={[styles.container, { backgroundColor: theme.overlayBg }, overlayStyle]}>
+                <Animated.View style={[styles.content, { backgroundColor: theme.background }, cardStyle]}>
                     {/* Header */}
                     <View style={styles.header}>
-                        {/* Only show close button if allowed (e.g. not forced verify) */}
                         {onClose && (
                             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                                <X size={24} color="#fff" />
+                                <X size={24} color={theme.textPrimary} />
                             </TouchableOpacity>
                         )}
                     </View>
 
-                    <Text style={styles.title}>
+                    <Text style={[styles.title, { color: theme.textPrimary }]}>
                         {mode === 'set'
                             ? (step === 1 ? 'Set a 4-digit PIN' : 'Confirm your PIN')
                             : (title || 'Enter PIN')}
@@ -175,34 +181,35 @@ export default function PinPromptModal({ visible, onClose, onSuccess, mode = 've
                         <View style={styles.row}>
                             <View style={styles.keyEmpty} />
                             {renderKey(0)}
-                            <TouchableOpacity style={styles.key} onPress={handleDelete}>
-                                <Delete size={24} color="#fff" />
+                            <TouchableOpacity style={[styles.key, { backgroundColor: theme.white }]} onPress={handleDelete}>
+                                <Delete size={24} color={theme.textPrimary} />
                             </TouchableOpacity>
                         </View>
                     </View>
-                    </Animated.View>
                 </Animated.View>
-            </Modal>
+            </Animated.View>
+        </Modal>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.8)',
         justifyContent: 'center',
         alignItems: 'center',
         padding: 20,
     },
     content: {
-        backgroundColor: '#1E1E1E',
-        borderRadius: 24,
+        borderRadius: 28,
         padding: 24,
         width: '100%',
         maxWidth: 400,
         alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#333',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.15,
+        shadowRadius: 20,
+        elevation: 8,
     },
     header: {
         width: '100%',
@@ -214,14 +221,14 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 22,
-        color: '#fff',
-        fontWeight: 'bold',
+        fontWeight: '900',
         marginBottom: 20,
         textAlign: 'center',
     },
     errorText: {
-        color: '#FF5252',
+        color: '#EF5350',
         fontSize: 14,
+        fontWeight: '800',
         marginBottom: 10,
     },
     dotsContainer: {
@@ -233,13 +240,12 @@ const styles = StyleSheet.create({
         width: 16,
         height: 16,
         borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#555',
+        borderWidth: 2,
         backgroundColor: 'transparent',
     },
     dotActive: {
-        backgroundColor: '#39E29B',
-        borderColor: '#39E29B',
+        backgroundColor: '#00B074',
+        borderColor: '#00B074',
     },
     keypad: {
         width: '100%',
@@ -253,7 +259,6 @@ const styles = StyleSheet.create({
         width: 70,
         height: 70,
         borderRadius: 35,
-        backgroundColor: 'rgba(255,255,255,0.05)',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -262,8 +267,7 @@ const styles = StyleSheet.create({
         height: 70,
     },
     keyText: {
-        color: '#fff',
         fontSize: 28,
-        fontWeight: '500',
+        fontWeight: '900',
     }
 });

@@ -1,56 +1,78 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Image, Platform, PanResponder, Easing, Modal, Linking, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Image, PanResponder, Easing, Modal, Linking, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X, User, ChevronRight, Wallet, Settings, HelpCircle, MessageCircle, Info, FileText, LogOut, MapPin, Mail, Phone, CheckCircle } from 'lucide-react-native';
-import { Colors } from '../styles/GlobalStyles';
+import { X, User, ChevronRight, Wallet, Settings, HelpCircle, MessageCircle, Info, FileText, LogOut, MapPin, CheckCircle, Users, ShieldCheck, Lock, Package } from 'lucide-react-native';
 import { authService } from '../services/auth';
-import DeviceInfo from 'react-native-device-info';
+import LoginRequiredDialog from './LoginRequiredDialog';
+import { useTheme } from '../context/ThemeContext';
 
-
-const MenuItem = ({ icon: Icon, label, onPress, active = false }) => (
-    <TouchableOpacity
-        style={[styles.menuItem, active && styles.menuItemActive]}
-        onPress={onPress}
-        activeOpacity={0.7}
-    >
-        <View style={[styles.iconContainer, active && styles.iconContainerActive]}>
-            <Icon size={22} color={active ? Colors.statusGreen : '#aaa'} />
-        </View>
-        <Text style={[styles.menuLabel, active && styles.menuLabelActive]}>{label}</Text>
-    </TouchableOpacity>
-);
+const MenuItem = ({ icon: Icon, label, onPress, active = false, rightElement = null, locked = false }) => {
+    const { theme, isDark } = useTheme();
+    return (
+        <TouchableOpacity
+            style={[
+                styles.menuItem, 
+                active && styles.menuItemActive,
+                active && { backgroundColor: isDark ? 'rgba(0, 176, 116, 0.2)' : 'rgba(0, 176, 116, 0.1)' }
+            ]}
+            onPress={onPress}
+            activeOpacity={locked ? 0.8 : 0.7}
+        >
+            <View style={[styles.iconContainer, { backgroundColor: theme.white }]}>
+                <Icon size={18} color={locked ? '#BFC7CE' : (active ? '#00B074' : theme.textPrimary)} />
+            </View>
+            <Text style={[styles.menuLabel, { color: theme.textPrimary }, active && styles.menuLabelActive, locked && { color: '#BFC7CE' }, { flex: 1 }]}>{label}</Text>
+            {locked ? (
+                <Lock size={16} color="#BFC7CE" />
+            ) : (
+                rightElement || <ChevronRight size={16} color={theme.textSecondary} />
+            )}
+        </TouchableOpacity>
+    );
+};
 
 export default function SideMenu({ visible, onClose, navigation }) {
     const { width } = useWindowDimensions();
+    const { theme, isDark } = useTheme();
     const DRAWER_WIDTH = Math.min(width * 0.85, 340);
 
     const insets = useSafeAreaInsets();
     const [user, setUser] = useState(null);
-    const [appVersion, setAppVersion] = useState('');
-    const [isBuyModalVisible, setIsBuyModalVisible] = useState(false);
-    const slideAnim = useRef(new Animated.Value(-1000)).current; // Start hidden (large negative value)
-    const fadeAnim = useRef(new Animated.Value(0)).current; // Overlay fade
 
-    // PanResponder for smooth drag to close
+    const [isBuyModalVisible, setIsBuyModalVisible] = useState(false);
+    const slideAnim = useRef(new Animated.Value(-1000)).current; 
+    const fadeAnim = useRef(new Animated.Value(0)).current; 
+
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => false,
             onMoveShouldSetPanResponder: (evt, gestureState) => {
-                // Only capture horizontal swipes
                 return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
             },
             onPanResponderMove: (evt, gestureState) => {
-                // Ensure we don't drag past 0 (fully open)
                 if (gestureState.dx < 0) {
                     slideAnim.setValue(gestureState.dx);
                 }
             },
             onPanResponderRelease: (evt, gestureState) => {
-                // If dragged more than 1/3 of drawer width or high velocity, close it
                 if (gestureState.dx < -DRAWER_WIDTH / 3 || gestureState.vx < -0.5) {
-                    onClose();
+                    Animated.parallel([
+                        Animated.timing(slideAnim, {
+                            toValue: -DRAWER_WIDTH,
+                            duration: 200,
+                            useNativeDriver: true,
+                            easing: Easing.in(Easing.poly(4)),
+                        }),
+                        Animated.timing(fadeAnim, {
+                            toValue: 0,
+                            duration: 200,
+                            useNativeDriver: true,
+                            easing: Easing.in(Easing.poly(4)),
+                        }),
+                    ]).start(() => {
+                        onClose();
+                    });
                 } else {
-                    // Snap back to open
                     Animated.spring(slideAnim, {
                         toValue: 0,
                         useNativeDriver: true,
@@ -63,7 +85,6 @@ export default function SideMenu({ visible, onClose, navigation }) {
     useEffect(() => {
         if (visible) {
             loadUser();
-            // Reset to hidden position before animating in if it was way off
             if (slideAnim._value < -DRAWER_WIDTH) {
                 slideAnim.setValue(-DRAWER_WIDTH);
             }
@@ -99,19 +120,19 @@ export default function SideMenu({ visible, onClose, navigation }) {
         }
     }, [visible, DRAWER_WIDTH]);
 
-    useEffect(() => {
-        const fetchVersion = async () => {
-            const version = DeviceInfo.getVersion();
-            const build = DeviceInfo.getBuildNumber();
-            const isDebug = __DEV__;
-            setAppVersion(`Version ${version} (Build ${build}) - ${isDebug ? '(Debug)' : '(Release)'}`);
-        };
-        fetchVersion();
-    }, []);
+    const [isGuest, setIsGuest] = useState(false);
+    const [loginPromptVisible, setLoginPromptVisible] = useState(false);
+    const [loginPromptMessage, setLoginPromptMessage] = useState('');
 
     const loadUser = async () => {
-        const userData = await authService.getUser();
-        setUser(userData);
+        const guest = await authService.isGuestMode();
+        setIsGuest(guest);
+        if (guest) {
+            setUser(null);
+        } else {
+            const userData = await authService.getUser();
+            setUser(userData);
+        }
     };
 
     const handleNavigation = (screen, params) => {
@@ -122,9 +143,6 @@ export default function SideMenu({ visible, onClose, navigation }) {
     };
 
     const handleBuyStation = () => {
-        // Don't close side menu immediately, just show modal over it? 
-        // Or close side menu then show modal. Let's keep side menu open or close it.
-        // User asked for a dialog. 
         setIsBuyModalVisible(true);
     };
 
@@ -147,9 +165,6 @@ export default function SideMenu({ visible, onClose, navigation }) {
         }, 300);
     };
 
-    // Optimized: Keep mounted to avoid re-mount delay
-    // if (!visible && slideAnim._value === -DRAWER_WIDTH) return null;
-
     return (
         <View style={[StyleSheet.absoluteFill, { zIndex: 9999 }]} pointerEvents={visible ? 'auto' : 'none'}>
             {/* Backdrop */}
@@ -163,6 +178,7 @@ export default function SideMenu({ visible, onClose, navigation }) {
                 style={[
                     styles.drawer,
                     {
+                        backgroundColor: theme.background,
                         transform: [{ translateX: slideAnim }],
                         width: DRAWER_WIDTH,
                         paddingTop: insets.top,
@@ -176,30 +192,44 @@ export default function SideMenu({ visible, onClose, navigation }) {
                         source={require('../assets/images/logo.png')}
                         style={styles.logo}
                         resizeMode="contain"
-                        tintColor="#ffffffff"
+                        tintColor={theme.textPrimary}
                     />
-                    <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                        <X size={24} color="#fff" />
+                    <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: theme.cardBg }]}>
+                        <X size={20} color={theme.textPrimary} />
                     </TouchableOpacity>
                 </View>
 
-                {/* User Profile Summary */}
-                <View style={styles.profileSection}>
-                    <View style={styles.avatar}>
-                        {user?.imageUrl ? (
-                            <Image source={{ uri: user.imageUrl }} style={styles.avatarImg} />
+                {/* User Profile Card */}
+                <View style={[styles.profileSection, { backgroundColor: theme.cardBg }]}>
+                    <View style={[styles.avatar, { backgroundColor: theme.white }]}>
+                        {(user?.imageUrl || user?.image_url || user?.profilePic || user?.profile_pic) ? (
+                            <Image 
+                                source={{ uri: user.imageUrl || user.image_url || user.profilePic || user.profile_pic }} 
+                                style={styles.avatarImg} 
+                                resizeMode="cover"
+                            />
                         ) : (
-                            <User size={24} color="#ccc" />
+                            <User size={22} color={theme.textSecondary} />
                         )}
                     </View>
                     <View style={styles.userInfo}>
-                        <Text style={styles.userName} numberOfLines={1}>{user?.name || 'Guest User'}</Text>
-                        <Text style={styles.userEmail} numberOfLines={1}>{user?.email || 'Sign in'}</Text>
+                        <Text style={[styles.userName, { color: theme.textPrimary }]} numberOfLines={1}>{isGuest ? 'Guest User' : user?.name || 'Guest User'}</Text>
+                        {isGuest ? (
+                            <TouchableOpacity onPress={() => {
+                                onClose();
+                                setTimeout(() => {
+                                    navigation.navigate('Login');
+                                }, 300);
+                            }}>
+                                <Text style={styles.signInText}>Sign In →</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <Text style={[styles.userEmail, { color: theme.textSecondary }]} numberOfLines={1}>{user?.email || 'Sign in'}</Text>
+                        )}
                     </View>
-                    {/* Removed Redirect Chevron */}
                 </View>
 
-                <View style={styles.divider} />
+                <View style={[styles.divider, { backgroundColor: theme.divider }]} />
 
                 {/* Menu Items */}
                 <ScrollView
@@ -207,30 +237,96 @@ export default function SideMenu({ visible, onClose, navigation }) {
                     contentContainerStyle={{ flexGrow: 1, paddingVertical: 10 }}
                     showsVerticalScrollIndicator={false}
                 >
-
-                    <MenuItem icon={Wallet} label="Wallet" onPress={() => handleNavigation('Wallet')} />
+                    {/* ACCOUNT Section */}
+                    <Text style={[styles.sectionHeader, { color: theme.textSecondary }]}>Account</Text>
+                    <MenuItem 
+                        icon={Wallet} 
+                        label="Wallet" 
+                        onPress={() => {
+                            if (isGuest) {
+                                setLoginPromptMessage("Sign in to add money to your wallet");
+                                setLoginPromptVisible(true);
+                            } else {
+                                handleNavigation('Wallet');
+                            }
+                        }} 
+                    />
+                    <MenuItem 
+                        icon={Package} 
+                        label="My Orders" 
+                        onPress={() => {
+                            if (isGuest) {
+                                setLoginPromptMessage("Sign in to view your orders");
+                                setLoginPromptVisible(true);
+                            } else {
+                                handleNavigation('MyOrders');
+                            }
+                        }} 
+                    />
+                    <MenuItem icon={MapPin} label="Buy Station" onPress={handleBuyStation} />
                     <MenuItem icon={Settings} label="Settings" onPress={() => handleNavigation('Settings')} />
 
-                    <View style={[styles.divider, { marginVertical: 10, height: 1, backgroundColor: '#333' }]} />
+                    <View style={[styles.menuDivider, { backgroundColor: theme.divider }]} />
 
-                    <MenuItem icon={MapPin} label="Buy Station" onPress={handleBuyStation} />
+                    {/* SUPPORT Section */}
+                    <Text style={[styles.sectionHeader, { color: theme.textSecondary }]}>Support</Text>
+                    <MenuItem 
+                        icon={MessageCircle} 
+                        label="Raise a Request" 
+                        onPress={() => {
+                            if (isGuest) {
+                                setLoginPromptMessage("Sign in to view your support requests status");
+                                setLoginPromptVisible(true);
+                            } else {
+                                handleNavigation('RequestStatus');
+                            }
+                        }}
+                    />
                     <MenuItem icon={HelpCircle} label="FAQs" onPress={() => handleNavigation('FAQ')} />
-                    <MenuItem icon={MessageCircle} label="Contact Support" onPress={() => { }} />
-                    <MenuItem icon={Info} label="About" onPress={() => handleNavigation('About')} />
+                    <MenuItem icon={Users} label="Contacts" onPress={() => handleNavigation('Contacts')} />
+
+                    <View style={[styles.menuDivider, { backgroundColor: theme.divider }]} />
+
+                    {/* PRODUCT Section */}
+                    <Text style={[styles.sectionHeader, { color: theme.textSecondary }]}>Product</Text>
+                    <MenuItem 
+                        icon={ShieldCheck} 
+                        label="Battery Warranty" 
+                        onPress={() => {
+                            if (isGuest) {
+                                setLoginPromptMessage("Sign in to view your warranty claim");
+                                setLoginPromptVisible(true);
+                            } else {
+                                handleNavigation('BatteryWarrantyStatus');
+                            }
+                        }}
+                    />
                     <MenuItem icon={FileText} label="Terms & Conditions" onPress={() => handleNavigation('Terms')} />
+                    <MenuItem icon={Lock} label="Privacy Policy" onPress={() => handleNavigation('TermsConsent', { readOnly: true })} />
+                    <MenuItem icon={Info} label="About" onPress={() => handleNavigation('About')} />
 
-                    <View style={{ flex: 1 }} />
+                    <View style={{ flex: 1, minHeight: 30 }} />
 
-                    <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-                        <LogOut size={20} color={Colors.statusRed} />
-                        <Text style={styles.logoutText}>Log Out</Text>
-                    </TouchableOpacity>
+                    {isGuest ? (
+                        <TouchableOpacity
+                            style={[styles.actionBtn, styles.loginBtn]}
+                            onPress={() => {
+                                onClose();
+                                setTimeout(() => {
+                                    navigation.navigate('Login');
+                                }, 300);
+                            }}
+                        >
+                            <LogOut size={18} color="#00B074" style={{ transform: [{ rotate: '180deg' }] }} />
+                            <Text style={styles.loginBtnText}>Sign In</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity style={[styles.actionBtn, styles.logoutBtn, { backgroundColor: theme.cardBg }]} onPress={handleLogout}>
+                            <LogOut size={18} color="#EF5350" />
+                            <Text style={styles.logoutBtnText}>Log Out</Text>
+                        </TouchableOpacity>
+                    )}
                 </ScrollView>
-
-                <View style={styles.footer}>
-                    <Text style={styles.versionText}>{appVersion}</Text>
-                </View>
-
             </Animated.View>
 
             {/* Buy Station Modal */}
@@ -240,48 +336,54 @@ export default function SideMenu({ visible, onClose, navigation }) {
                 animationType="fade"
                 onRequestClose={closeBuyModal}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                <View style={[styles.modalOverlay, { backgroundColor: theme.overlayBg }]}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.cardBg }]}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Buy Station</Text>
-                            <TouchableOpacity onPress={closeBuyModal} style={styles.closeModalBtn}>
-                                <X size={24} color="#fff" />
+                            <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Buy Station</Text>
+                            <TouchableOpacity onPress={closeBuyModal} style={[styles.closeModalBtn, { backgroundColor: theme.white }]}>
+                                <X size={20} color={theme.textPrimary} />
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView contentContainerStyle={styles.modalBody}>
-                            <Text style={styles.modalSubtitle}>Join our network and earn by hosting an EV charging station.</Text>
+                        <ScrollView contentContainerStyle={styles.modalBody} showsVerticalScrollIndicator={false}>
+                            <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>Join our network and earn by hosting an EV charging station.</Text>
 
                             <View style={styles.stepsContainer}>
                                 <View style={styles.stepRow}>
-                                    <CheckCircle size={20} color={Colors.primaryContainer} style={styles.stepIcon} />
-                                    <Text style={styles.stepText}>Contact our support team with your property details.</Text>
+                                    <CheckCircle size={18} color="#00B074" style={styles.stepIcon} />
+                                    <Text style={[styles.stepText, { color: theme.textPrimary }]}>Contact our support team with your property details.</Text>
                                 </View>
                                 <View style={styles.stepRow}>
-                                    <CheckCircle size={20} color={Colors.primaryContainer} style={styles.stepIcon} />
-                                    <Text style={styles.stepText}>Our team will verify the location and feasibility.</Text>
+                                    <CheckCircle size={18} color="#00B074" style={styles.stepIcon} />
+                                    <Text style={[styles.stepText, { color: theme.textPrimary }]}>Our team will verify the location and feasibility.</Text>
                                 </View>
                                 <View style={styles.stepRow}>
-                                    <CheckCircle size={20} color={Colors.primaryContainer} style={styles.stepIcon} />
-                                    <Text style={styles.stepText}>Once approved, we will assist with installation and setup.</Text>
+                                    <CheckCircle size={18} color="#00B074" style={styles.stepIcon} />
+                                    <Text style={[styles.stepText, { color: theme.textPrimary }]}>Once approved, we will assist with installation and setup.</Text>
                                 </View>
                             </View>
 
-                            {/* <View style={styles.contactBox}>
-                                <Text style={styles.contactLabel}>Chat with us on WhatsApp:</Text>
-                                <TouchableOpacity onPress={contactWhatsApp} style={styles.emailRow}>
-                                    <MessageCircle size={22} color={Colors.primaryContainer} />
-                                    <Text style={styles.emailText}>Message on WhatsApp</Text>
-                                </TouchableOpacity>
-                            </View> */}
-                            
-                            <TouchableOpacity style={styles.primaryBtn} onPress={contactWhatsApp}>
-                                <Text style={styles.primaryBtnText}>Contact on WhatsApp</Text>
+                            <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: theme.white }]} onPress={contactWhatsApp}>
+                                <Text style={[styles.primaryBtnText, { color: theme.textPrimary }]}>Contact on WhatsApp</Text>
                             </TouchableOpacity>
                         </ScrollView>
                     </View>
                 </View>
             </Modal>
+
+            {/* Login required dialog */}
+            <LoginRequiredDialog
+                visible={loginPromptVisible}
+                contextMessage={loginPromptMessage}
+                onLoginPress={() => {
+                    setLoginPromptVisible(false);
+                    onClose();
+                    setTimeout(() => {
+                        navigation.navigate('Login', { returnRoute: 'Home' });
+                    }, 300);
+                }}
+                onClose={() => setLoginPromptVisible(false)}
+            />
         </View>
     );
 }
@@ -289,21 +391,13 @@ export default function SideMenu({ visible, onClose, navigation }) {
 const styles = StyleSheet.create({
     backdrop: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0,0,0,0.6)',
+        backgroundColor: 'rgba(0,0,0,0.5)',
     },
     drawer: {
         position: 'absolute',
         left: 0,
         top: 0,
         bottom: 0,
-        backgroundColor: '#181818',
-        borderRightWidth: 1,
-        borderRightColor: '#333',
-        shadowColor: "#000",
-        shadowOffset: { width: 4, height: 0 },
-        shadowOpacity: 0.5,
-        shadowRadius: 10,
-        elevation: 20,
     },
     header: {
         flexDirection: 'row',
@@ -311,34 +405,35 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         paddingHorizontal: 20,
         paddingVertical: 15,
-        borderBottomWidth: 1,
-        borderBottomColor: '#252525',
     },
     logo: {
         width: 100,
         height: 35,
     },
     closeBtn: {
-        padding: 5,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     profileSection: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: 20,
-        backgroundColor: '#202020',
-        marginBottom: 5,
+        padding: 16,
+        marginHorizontal: 16,
+        borderRadius: 24,
+        marginBottom: 16,
+        marginTop: 10,
     },
     avatar: {
-        width: 46,
-        height: 46,
-        borderRadius: 23,
-        backgroundColor: '#333',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 15,
+        marginRight: 12,
         overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: '#444'
     },
     avatarImg: {
         width: '100%',
@@ -348,93 +443,105 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     userName: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: 'bold',
+        fontSize: 15,
+        fontWeight: '900',
         marginBottom: 2,
     },
     userEmail: {
-        color: '#888',
         fontSize: 12,
+        fontWeight: '600',
+    },
+    signInText: {
+        color: '#00B074',
+        fontWeight: '900',
+        fontSize: 13,
+        marginTop: 2,
     },
     divider: {
         height: 1,
-        backgroundColor: '#252525',
-        marginHorizontal: 0,
+        marginHorizontal: 16,
+        marginBottom: 10,
     },
     menuContainer: {
         flex: 1,
-        paddingHorizontal: 15,
+        paddingHorizontal: 16,
     },
     menuItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 14,
-        paddingHorizontal: 15,
-        borderRadius: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 10,
+        borderRadius: 16,
         marginBottom: 4,
     },
     menuItemActive: {
-        backgroundColor: 'rgba(0, 230, 118, 0.1)',
+        backgroundColor: 'rgba(0, 176, 116, 0.1)',
     },
     iconContainer: {
-        width: 30,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 15,
-    },
-    iconContainerActive: {
-        // 
+        marginRight: 12,
     },
     menuLabel: {
-        color: '#ccc',
-        fontSize: 15,
-        fontWeight: '500',
+        fontSize: 14,
+        fontWeight: '800',
     },
     menuLabelActive: {
-        color: Colors.statusGreen,
-        fontWeight: '700',
+        color: '#00B074',
+        fontWeight: '900',
     },
-    logoutBtn: {
+    actionBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 14,
-        paddingHorizontal: 15,
-        borderRadius: 12,
+        justifyContent: 'center',
+        height: 56,
+        borderRadius: 28,
         marginTop: 10,
-        backgroundColor: 'rgba(255, 69, 58, 0.1)',
         marginBottom: 20,
     },
-    logoutText: {
-        color: Colors.statusRed, // Red
+    loginBtn: {
+        backgroundColor: 'rgba(0, 176, 116, 0.1)',
+    },
+    loginBtnText: {
+        color: '#00B074',
         fontSize: 15,
-        fontWeight: '600',
-        marginLeft: 15,
+        fontWeight: '900',
+        marginLeft: 10,
     },
-    footer: {
-        padding: 20,
-        alignItems: 'center',
-        borderTopWidth: 1,
-        borderTopColor: '#252525',
+    logoutBtnText: {
+        color: '#EF5350',
+        fontSize: 15,
+        fontWeight: '900',
+        marginLeft: 10,
     },
-    versionText: {
-        color: '#555',
+    sectionHeader: {
         fontSize: 11,
+        fontWeight: '900',
+        textTransform: 'uppercase',
+        marginTop: 12,
+        marginBottom: 6,
+        paddingHorizontal: 10,
+        letterSpacing: 1.2,
+    },
+    menuDivider: {
+        height: 1,
+        marginVertical: 10,
+        marginHorizontal: 10,
     },
     // Modal Styles
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.8)',
         justifyContent: 'center',
         alignItems: 'center',
         padding: 20
     },
     modalContent: {
         width: '100%',
-        backgroundColor: '#1E1E1E',
-        borderRadius: 24,
+        borderRadius: 28,
         padding: 24,
-        borderWidth: 1,
-        borderColor: '#333'
     },
     modalHeader: {
         flexDirection: 'row',
@@ -443,21 +550,24 @@ const styles = StyleSheet.create({
         marginBottom: 20
     },
     closeModalBtn: {
-        padding: 4
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     modalTitle: {
-        color: '#fff',
         fontSize: 20,
-        fontWeight: 'bold'
+        fontWeight: '900'
     },
     modalBody: {
         alignItems: 'flex-start'
     },
     modalSubtitle: {
-        color: '#aaa',
-        fontSize: 14,
+        fontSize: 13,
         marginBottom: 20,
-        lineHeight: 20
+        lineHeight: 20,
+        fontWeight: '600'
     },
     stepsContainer: {
         marginBottom: 24,
@@ -473,46 +583,20 @@ const styles = StyleSheet.create({
         marginRight: 12
     },
     stepText: {
-        color: '#eee',
-        fontSize: 14,
+        fontSize: 13,
         flex: 1,
-        lineHeight: 20
-    },
-    contactBox: {
-        backgroundColor: '#252525',
-        padding: 16,
-        borderRadius: 12,
-        width: '100%',
-        alignItems: 'center',
-        marginBottom: 20
-    },
-    contactLabel: {
-        color: '#888',
-        fontSize: 12,
-        marginBottom: 8
-    },
-    emailRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10
-    },
-    emailText: {
-        color: '#fff', // or Colors.primaryContainer
-        fontSize: 16,
-        fontWeight: 'bold',
-        textDecorationLine: 'underline'
+        lineHeight: 20,
+        fontWeight: '600'
     },
     primaryBtn: {
-        backgroundColor: Colors.primaryContainer,
         width: '100%',
         paddingVertical: 16,
-        borderRadius: 16,
+        borderRadius: 28,
         alignItems: 'center',
         justifyContent: 'center'
     },
     primaryBtnText: {
-        color: Colors.matteBlack,
-        fontSize: 16,
-        fontWeight: 'bold'
+        fontSize: 15,
+        fontWeight: '900'
     }
 });

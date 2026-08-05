@@ -1,78 +1,43 @@
-// src/components/UpdateRequiredModal.js
-// Non-dismissable update required dialog shown on the Splash Screen.
-// Opens the Play Store listing when the user taps "Update Now".
+import React, { useEffect, useRef } from 'react';
+import { Modal, View, Text, TouchableOpacity, StyleSheet, Linking, Platform, Animated } from 'react-native';
+import { useTheme } from '../context/ThemeContext';
 
-import React, { useEffect } from 'react';
-import {
-    Modal,
-    View,
-    Text,
-    TouchableOpacity,
-    StyleSheet,
-    Linking,
-    Platform,
-} from 'react-native';
-import Animated, { 
-    useAnimatedStyle, 
-    useSharedValue, 
-    withTiming, 
-    withSpring,
-    interpolate,
-    Extrapolation
-} from 'react-native-reanimated';
-import LinearGradient from 'react-native-linear-gradient';
-import { Colors } from '../styles/GlobalStyles';
-
-/**
- * UpdateRequiredModal
- *
- * Props:
- *   visible  {boolean}   – controls visibility
- *   onUpdate {function}  – called when user taps "Update Now"
- */
-export default function UpdateRequiredModal({ visible, onUpdate }) {
-    const progress = useSharedValue(0);
+export default function UpdateRequiredModal({ visible, onUpdate, isForce = true, onLater }) {
+    const { theme } = useTheme();
+    const progress = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
-        if (visible) {
-            progress.value = withTiming(1, { duration: 200 });
-        } else {
-            progress.value = withTiming(0, { duration: 200 });
-        }
+        Animated.timing(progress, {
+            toValue: visible ? 1 : 0,
+            duration: 200,
+            useNativeDriver: true,
+        }).start();
     }, [visible]);
 
-    const overlayStyle = useAnimatedStyle(() => ({
-        opacity: progress.value,
-    }));
+    const overlayStyle = {
+        opacity: progress,
+    };
 
-    const cardStyle = useAnimatedStyle(() => {
-        const translateY = interpolate(
-            progress.value,
-            [0, 1],
-            [100, 0],
-            Extrapolation.CLAMP
-        );
-        const scale = interpolate(
-            progress.value,
-            [0, 1],
-            [0.9, 1],
-            Extrapolation.CLAMP
-        );
-        const opacity = interpolate(
-            progress.value,
-            [0, 0.5, 1],
-            [0, 0, 1],
-            Extrapolation.CLAMP
-        );
-
-        return {
-            opacity,
-            transform: [
-                { translateY: withSpring(translateY, { damping: 50, stiffness: 1000 }) },
-                { scale: withSpring(scale, { damping: 50, stiffness: 1000 }) }
-            ],
-        };
-    });
+    const cardStyle = {
+        opacity: progress.interpolate({
+            inputRange: [0, 0.5, 1],
+            outputRange: [0, 0, 1],
+        }),
+        transform: [
+            {
+                translateY: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [100, 0],
+                }),
+            },
+            {
+                scale: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.9, 1],
+                }),
+            },
+        ],
+    };
 
     const handleUpdate = async () => {
         try {
@@ -95,42 +60,46 @@ export default function UpdateRequiredModal({ visible, onUpdate }) {
         onUpdate?.();
     };
 
+    const titleText = isForce ? "Update Required" : "New Version Available";
+    const bodyText = isForce
+        ? "An important update is available with security enhancements and fixes. Please download the latest version to continue."
+        : "A new update is available with improvements and new features. Would you like to update now?";
+
     return (
         <Modal
             visible={visible}
             transparent
             animationType="none"
             statusBarTranslucent
-            onRequestClose={() => { /* Intentionally blocked – non-dismissable */ }}
+            onRequestClose={() => {
+                if (!isForce) {
+                    onLater?.();
+                }
+            }}
         >
-            <Animated.View style={[styles.overlay, overlayStyle]}>
-                <Animated.View
-                    style={[
-                        styles.card,
-                        cardStyle
-                    ]}
-                >
-                    <Text style={styles.title}>Update Required</Text>
+            <Animated.View style={[styles.overlay, { backgroundColor: theme.overlayBg }, overlayStyle]}>
+                <Animated.View style={[styles.card, { backgroundColor: theme.background }, cardStyle]}>
+                    <Text style={[styles.title, { color: theme.textPrimary }]}>{titleText}</Text>
 
-                    <Text style={styles.body}>
-                        A new version of the app is available. Please update to continue using the services.
-                    </Text>
+                    <Text style={[styles.body, { color: theme.textSecondary }]}>{bodyText}</Text>
 
                     <TouchableOpacity
                         onPress={handleUpdate}
                         activeOpacity={0.8}
-                        style={styles.updateBtn}
+                        style={[styles.updateBtn, { backgroundColor: theme.white }]}
                     >
-                        <LinearGradient
-                            colors={Colors.primaryGradient}
-                            locations={[1, 1]}
-                            start={{ x: 0.7, y: 0.9 }}
-                            end={{ x: 1, y: 0.9 }}
-                            style={styles.gradient}
-                        >
-                            <Text style={styles.updateBtnText}>Update Now</Text>
-                        </LinearGradient>
+                        <Text style={[styles.updateBtnText, { color: theme.textPrimary }]}>Update Now</Text>
                     </TouchableOpacity>
+
+                    {!isForce && (
+                        <TouchableOpacity
+                            onPress={onLater}
+                            activeOpacity={0.8}
+                            style={styles.laterBtn}
+                        >
+                            <Text style={[styles.laterBtnText, { color: theme.textSecondary }]}>Later</Text>
+                        </TouchableOpacity>
+                    )}
                 </Animated.View>
             </Animated.View>
         </Modal>
@@ -140,57 +109,54 @@ export default function UpdateRequiredModal({ visible, onUpdate }) {
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.7)',
         justifyContent: 'center',
         alignItems: 'center',
         paddingHorizontal: 32,
     },
-
     card: {
         width: '100%',
-        backgroundColor: '#1C1C1E',
         borderRadius: 28,
         padding: 24,
         alignItems: 'center',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.3,
+        shadowOpacity: 0.15,
         shadowRadius: 20,
         elevation: 10,
     },
-
     title: {
         fontSize: 20,
-        fontWeight: 'bold',
-        color: '#FFFFFF',
+        fontWeight: '900',
         textAlign: 'center',
         marginBottom: 12,
     },
-
     body: {
-        fontSize: 15,
-        color: '#A0A0A0',
+        fontSize: 14,
         textAlign: 'center',
         lineHeight: 22,
         marginBottom: 24,
+        fontWeight: '600',
     },
-
     updateBtn: {
         width: '100%',
-        height: 50,
+        height: 56,
         borderRadius: 28,
-        overflow: 'hidden',
-    },
-
-    gradient: {
-        flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-
     updateBtnText: {
-        color: '#000',
         fontSize: 16,
-        fontWeight: '700',
+        fontWeight: '900',
+    },
+    laterBtn: {
+        width: '100%',
+        height: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 12,
+    },
+    laterBtnText: {
+        fontSize: 15,
+        fontWeight: '800',
     },
 });

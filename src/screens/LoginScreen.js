@@ -1,24 +1,163 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ActivityIndicator, TextInput, KeyboardAvoidingView, Platform, ScrollView, StatusBar } from 'react-native';
+import { jwtDecode } from 'jwt-decode';
+import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator, TextInput, KeyboardAvoidingView, Platform, ScrollView, StatusBar, Linking } from 'react-native';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { authService } from '../services/auth';
 import { authApi, userApi } from '../services/api';
-import { GOOGLE_WEB_CLIENT_ID } from '@env';
-import { Mail, Lock, Eye, EyeOff, Smartphone } from 'lucide-react-native';
+import { GOOGLE_WEB_CLIENT_ID, TRUECALLER_ANDROID_CLIENT_ID } from '@env';
+import { Mail, Lock, Eye, EyeOff, Smartphone, Phone, ArrowRight } from 'lucide-react-native';
+import { useAlert } from '../context/AlertContext';
+import { useTruecaller } from '@ajitpatel28/react-native-truecaller';
+import LinearGradient from 'react-native-linear-gradient';
+
+import { useTheme } from '../context/ThemeContext';
+import PermissionConsentModal from '../components/PermissionConsentModal';
+import { permissionService } from '../services/permissionService';
 
 export default function LoginScreen({ navigation, route }) {
+    const { showAlert } = useAlert();
+    const { theme, isDark } = useTheme();
     const [loading, setLoading] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [truecallerAvailable, setTruecallerAvailable] = useState(null); // null = unknown, true/false after check
+    const [showPermissionModal, setShowPermissionModal] = useState(false);
+    const pendingNavRef = React.useRef(null);
+
+    const {
+        initializeTruecallerSDK,
+        openTruecallerForVerification,
+        isSdkUsable,
+        userProfile,
+        error: truecallerError,
+    } = useTruecaller({
+        androidClientId: TRUECALLER_ANDROID_CLIENT_ID,
+        androidSuccessHandler: (data) => {
+            console.log('Truecaller SDK raw response:', JSON.stringify(data, null, 2));
+            handleBackendTruecallerLogin({
+                authorizationCode: data.authorizationCode,
+                codeVerifier: data.codeVerifier,
+                firstName: data.given_name,
+                lastName: data.family_name,
+                phoneNumber: data.phone_number,
+                countryCode: data.phone_number_country_code,
+                email: data.email,
+                gender: data.gender,
+            });
+        }
+    });
 
     useEffect(() => {
-        // Clear any stale session data on mount
-        const clearSession = async () => {
-            await authService.logout();
-        };
-        clearSession();
+        if (truecallerError) {
+            console.warn("Truecaller SDK Error:", truecallerError);
+            showAlert("Truecaller Error", truecallerError);
+        }
+    }, [truecallerError]);
 
+    useEffect(() => {
+        if (TRUECALLER_ANDROID_CLIENT_ID && !TRUECALLER_ANDROID_CLIENT_ID.includes('YOUR_TRUECALLER_CLIENT_ID')) {
+            initializeTruecallerSDK()
+                .then(() => console.log('Truecaller SDK Initialized'))
+                .then(() => isSdkUsable().then(setTruecallerAvailable))
+                .catch((err) => console.warn('Truecaller SDK Init failed:', err));
+        }
+    }, [initializeTruecallerSDK]);
+
+    useEffect(() => {
+        if (Platform.OS === 'ios' && userProfile) {
+            handleBackendTruecallerLogin({
+                firstName: userProfile.firstName,
+                lastName: userProfile.lastName,
+                phoneNumber: userProfile.phoneNumber,
+                countryCode: userProfile.countryCode,
+                email: userProfile.email,
+                gender: userProfile.gender,
+            });
+        }
+    }, [userProfile]);
+
+    const checkAndShowDeactivatedDialog = (error, defaultTitle = "Login Failed", defaultMsg = "Invalid email or password.") => {
+        const rawMsg = error?.userMessage || error?.response?.data?.message || error?.message || "";
+        const lowerMsg = rawMsg.toLowerCase();
+        const status = error?.response?.status;
+        const isDeactivated = lowerMsg.includes("deactivated") || 
+                              lowerMsg.includes("disabled") || 
+                              lowerMsg.includes("runtime error") || 
+                              status === 500;
+
+        if (isDeactivated) {
+            showAlert(
+                "Account Deactivated",
+                "Your account has been deactivated. If you believe this is an error or wish to reactivate your account, please contact our support team.",
+                [
+                    { text: "OK", style: "cancel" },
+                    {
+                        text: "Contact Support",
+                        onPress: () => {
+                            Linking.openURL('mailto:support@bentork.com?subject=Deactivated%20Account%20Reactivation');
+                        }
+                    }
+                ]
+            );
+            return true;
+        }
+        showAlert(defaultTitle, rawMsg || defaultMsg);
+        return false;
+    };
+
+    const handleBackendTruecallerLogin = async (payload) => {
+        setLoading(true);
+        try {
+            console.log("Exchanging Truecaller verification details with backend...");
+            const response = await authApi.truecallerLogin(payload);
+            if (response && response.token) {
+                await processLoginSuccess(response);
+            } else {
+                showAlert("Login Failed", "No token received from server.");
+            }
+        } catch (error) {
+            console.error("Backend Truecaller login error:", error);
+            const serverMsg = error.response?.data?.message || error.userMessage || '';
+            const isExistingUser =
+                serverMsg.toLowerCase().includes('already exists') ||
+                serverMsg.toLowerCase().includes('database access error') ||
+                serverMsg.toLowerCase().includes('email already');
+
+            if (isExistingUser) {
+                showAlert(
+                    "Account Already Linked",
+                    "This account is already registered. To keep your data safe, please log in using Google or your Email & Password."
+                );
+            } else {
+                checkAndShowDeactivatedDialog(error, "Login Failed", "Server Error during Truecaller Login");
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleTruecallerSignIn = async () => {
+        console.log("Truecaller Client ID loaded in bundle:", TRUECALLER_ANDROID_CLIENT_ID);
+        if (!TRUECALLER_ANDROID_CLIENT_ID || TRUECALLER_ANDROID_CLIENT_ID.includes('YOUR_TRUECALLER_CLIENT_ID')) {
+            showAlert("Configuration Missing", "Truecaller is not configured on this build.");
+            return;
+        }
+
+        try {
+            const usable = await isSdkUsable();
+            if (usable) {
+                await openTruecallerForVerification();
+            } else {
+                showAlert("Truecaller Unavailable", "Truecaller app is not installed or configured on this device.");
+            }
+        } catch (err) {
+            console.error("Truecaller sign in execution failed:", err);
+            showAlert("Truecaller Error", err.message || "Failed to start Truecaller verification.");
+        }
+    };
+
+    useEffect(() => {
         const clientId = GOOGLE_WEB_CLIENT_ID;
         if (!clientId || clientId.length < 10) {
             console.warn("GOOGLE_WEB_CLIENT_ID is missing or invalid in .env");
@@ -34,7 +173,7 @@ export default function LoginScreen({ navigation, route }) {
 
     const handleManualLogin = async () => {
         if (!email || !password) {
-            Alert.alert("Missing Fields", "Please enter both email and password.");
+            showAlert("Missing Fields", "Please enter both email and password.");
             return;
         }
 
@@ -43,16 +182,14 @@ export default function LoginScreen({ navigation, route }) {
             console.log("Attempting manual login for:", email);
             const response = await authApi.login(email, password);
 
-            // Expected response: { token: "JWT...", ... }
             if (response && response.token) {
                 await processLoginSuccess(response);
             } else {
-                Alert.alert("Login Failed", "Invalid response from server.");
+                showAlert("Login Failed", "Invalid response from server.");
             }
         } catch (error) {
             console.error("Manual login error:", error);
-            const msg = error.userMessage || (error.response?.data?.message) || "Invalid email or password.";
-            Alert.alert("Login Failed", msg);
+            checkAndShowDeactivatedDialog(error, "Login Failed", "Invalid email or password.");
         } finally {
             setLoading(false);
         }
@@ -67,7 +204,7 @@ export default function LoginScreen({ navigation, route }) {
             if (userEmail) {
                 handleBackendGoogleLogin(userEmail.trim());
             } else {
-                Alert.alert("Login Error", "Could not retrieve email from Google Account.");
+                showAlert("Login Error", "Could not retrieve email from Google Account.");
             }
         } catch (error) {
             if (error.code === statusCodes.SIGN_IN_CANCELLED) {
@@ -75,10 +212,10 @@ export default function LoginScreen({ navigation, route }) {
             } else if (error.code === statusCodes.IN_PROGRESS) {
                 console.log("Login in progress");
             } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-                Alert.alert("Error", "Google Play Services not available");
+                showAlert("Error", "Google Play Services not available");
             } else {
                 console.error(error);
-                Alert.alert("Error", "Google Login failed. Please try again.");
+                showAlert("Error", "Google Login failed. Please try again.");
             }
         }
     };
@@ -90,130 +227,209 @@ export default function LoginScreen({ navigation, route }) {
             if (response && response.token) {
                 await processLoginSuccess(response);
             } else {
-                Alert.alert("Login Failed", "No token received from server.");
+                showAlert("Login Failed", "No token received from server.");
             }
         } catch (error) {
             console.error("Backend Google login error:", error);
-            Alert.alert("Login Failed", error.userMessage || "Server Error during Google Login");
+            checkAndShowDeactivatedDialog(error, "Login Failed", "Server Error during Google Login");
         } finally {
             setLoading(false);
         }
     };
 
     const processLoginSuccess = async (response) => {
-        // 1. Clear old data
         await authService.logout();
 
-        // 2. Save new Token
         const token = response.token;
         if (!token) {
-            Alert.alert("Login Error", "No token received.");
+            showAlert("Login Error", "No token received.");
             return;
         }
         await authService.setToken(token);
 
-        // 3. Get User Details if missing (Manual Login)
         let userData = {
             id: response.id || response.userId,
             name: response.name,
-            email: response.email,
+            email: response.email || email,
             imageUrl: response.imageUrl,
             mobile: response.mobile
         };
 
-        // If name is missing, we likely just got a token. Fetch full profile.
-        if (!userData.name) {
-            try {
-                // We rely on the 'email' state variable from the form for manual login
-                // OR decode token if possible. For now, use the email state if available.
-                const targetEmail = response.email || email; // 'email' from component state
-
-                if (targetEmail) {
-                    const userDetails = await userApi.getUserDetails(targetEmail);
-                    userData = {
-                        id: userDetails.id,
-                        name: userDetails.name,
-                        email: userDetails.email,
-                        imageUrl: userDetails.imageUrl,
-                        mobile: userDetails.mobile
-                    };
-                }
-            } catch (err) {
-                console.warn("Failed to fetch user details after login:", err);
-                // Continue anyway, maybe retrying later or relying on partial data
+        try {
+            const decoded = jwtDecode(token);
+            if (decoded) {
+                userData.id = userData.id || decoded.id || decoded.userId || decoded.sub;
+                userData.name = userData.name || decoded.name || decoded.fullName;
+                userData.email = userData.email || decoded.email || decoded.sub;
             }
+            console.log("JWT decoded claims:", JSON.stringify(decoded));
+        } catch (decodeErr) {
+            console.warn("JWT decode failed (non-critical):", decodeErr?.message);
+        }
+
+        if (!userData.email) {
+            userData.email = email;
         }
 
         await authService.setUser(userData);
+        console.log("User data saved (initial):", JSON.stringify(userData));
 
-        // 4. FCM Token Sync (Send to Backend)
+        if (!userData.name || !userData.id || isNaN(Number(userData.id))) {
+            const targetEmail = userData.email;
+            if (targetEmail) {
+                try {
+                    const userDetails = await userApi.getUserDetails(targetEmail);
+                    if (userDetails) {
+                        userData = {
+                            id: userDetails.id || userData.id,
+                            name: userDetails.name || userData.name,
+                            email: userDetails.email || userData.email,
+                            imageUrl: userDetails.imageUrl || userData.imageUrl,
+                            mobile: userDetails.mobile || userData.mobile
+                        };
+                        await authService.setUser(userData);
+                        console.log("User data enhanced:", JSON.stringify(userData));
+                    }
+                } catch (err) {
+                    console.warn("Failed to fetch user details after login:", err?.message);
+                    await authService.setToken(token);
+                }
+            }
+        }
+
         try {
-            const { getFCMToken } = require('../services/fcmService');
-            getFCMToken(); // Run in background
+            const { registerFCM } = require('../services/fcmService');
+            registerFCM();
         } catch (fcmErr) {
             console.warn("FCM sync error after login:", fcmErr);
         }
 
-        // 5. Navigation
-        const { postLoginTarget, postLoginParams } = route.params || {};
+        const executeTargetNavigation = async () => {
+            const { postLoginTarget, postLoginParams, returnRoute, returnParams } = route.params || {};
+            const tcAccepted = await authService.hasAcceptedTerms();
 
-        // Check if Terms & Conditions have been accepted on this device
-        const tcAccepted = await authService.hasAcceptedTerms();
-
-        if (postLoginTarget) {
-            if (!tcAccepted) {
-                // Show T&C first, then go to the intended target
+            if (returnRoute) {
+                if (!tcAccepted) {
+                    navigation.reset({
+                        index: 0,
+                        routes: [{
+                            name: 'TermsConsent',
+                            params: { nextScreen: returnRoute, nextParams: returnParams }
+                        }],
+                    });
+                } else {
+                    navigation.replace(returnRoute, returnParams);
+                }
+            } else if (postLoginTarget) {
+                if (!tcAccepted) {
+                    navigation.reset({
+                        index: 0,
+                        routes: [{
+                            name: 'TermsConsent',
+                            params: { nextScreen: postLoginTarget, nextParams: postLoginParams }
+                        }],
+                    });
+                } else {
+                    navigation.replace(postLoginTarget, postLoginParams);
+                }
+            } else if (!tcAccepted) {
                 navigation.reset({
                     index: 0,
-                    routes: [{
-                        name: 'TermsConsent',
-                        params: { nextScreen: postLoginTarget, nextParams: postLoginParams }
-                    }],
+                    routes: [{ name: 'TermsConsent', params: { nextScreen: 'Home' } }],
                 });
             } else {
-                navigation.replace(postLoginTarget, postLoginParams);
+                setTimeout(() => {
+                    navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'Home' }],
+                    });
+                }, 100);
             }
-        } else if (!tcAccepted) {
-            // First-time user or device — show T&C before Home
-            navigation.reset({
-                index: 0,
-                routes: [{ name: 'TermsConsent', params: { nextScreen: 'Home' } }],
-            });
+        };
+
+        const consentCompleted = await permissionService.hasCompletedConsent();
+        if (!consentCompleted) {
+            pendingNavRef.current = executeTargetNavigation;
+            setShowPermissionModal(true);
         } else {
-            setTimeout(() => {
-                navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'Home' }],
-                });
-            }, 100);
+            await executeTargetNavigation();
         }
     };
 
+    const handlePermissionConsentDone = async () => {
+        setShowPermissionModal(false);
+        if (pendingNavRef.current) {
+            const navFn = pendingNavRef.current;
+            pendingNavRef.current = null;
+            await navFn();
+        } else {
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'Home' }],
+            });
+        }
+    };
+
+    const handleGuestMode = async () => {
+        setLoading(true);
+        try {
+            await authService.logout();
+            await authService.setGuestMode(true);
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'Home' }],
+            });
+        } catch (error) {
+            console.error("Guest mode failed:", error);
+            showAlert("Error", "Failed to start guest session.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const styles = getStyles(theme, isDark);
+
     return (
         <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
             style={styles.container}
         >
-            <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                <Image
-                    source={require('../assets/images/logo.png')}
-                    style={styles.logo}
-                    resizeMode="contain"
-                />
+            <StatusBar translucent backgroundColor="transparent" barStyle={isDark ? 'light-content' : 'dark-content'} />
+            <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <View style={styles.heroWrapper}>
+                    <Image
+                        source={isDark ? require('../assets/images/dark/login_hero.webp') : require('../assets/images/login_hero.webp')}
+                        style={styles.heroImage}
+                        resizeMode="cover"
+                    />
+                    <LinearGradient
+                        colors={
+                            isDark
+                                ? ['transparent', 'rgba(19, 17, 20, 0.4)', 'rgba(19, 17, 20, 0.95)', theme.background]
+                                : ['transparent', 'rgba(208, 214, 219, 0.4)', 'rgba(208, 214, 219, 0.95)', theme.background]
+                        }
+                        style={styles.heroGradient}
+                        pointerEvents="none"
+                    />
+                </View>
 
-                <Text style={styles.title}>Welcome Back</Text>
-                <Text style={styles.subtitle}>Sign in to continue charging</Text>
-
-                {/* Manual Login Form */}
                 <View style={styles.formContainer}>
+                    <Image
+                        source={require('../assets/images/logo.png')}
+                        style={styles.logo}
+                        resizeMode="contain"
+                    />
+
+                    <Text style={styles.title}>Welcome Back!</Text>
+                    <Text style={styles.subtitle}>Sign in to continue charging</Text>
+
                     {/* Email Input */}
                     <View style={styles.inputWrapper}>
-                        <Mail size={20} color="#888" style={styles.inputIcon} />
+                        <Mail size={20} color={theme.textSecondary} style={styles.inputIcon} />
                         <TextInput
                             style={styles.input}
                             placeholder="Email Address"
-                            placeholderTextColor="#666"
+                            placeholderTextColor={theme.placeholder}
                             value={email}
                             onChangeText={setEmail}
                             autoCapitalize="none"
@@ -223,20 +439,20 @@ export default function LoginScreen({ navigation, route }) {
 
                     {/* Password Input */}
                     <View style={styles.inputWrapper}>
-                        <Lock size={20} color="#888" style={styles.inputIcon} />
+                        <Lock size={20} color={theme.textSecondary} style={styles.inputIcon} />
                         <TextInput
                             style={styles.input}
                             placeholder="Password"
-                            placeholderTextColor="#666"
+                            placeholderTextColor={theme.placeholder}
                             value={password}
                             onChangeText={setPassword}
                             secureTextEntry={!showPassword}
                         />
                         <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                             {showPassword ? (
-                                <EyeOff size={20} color="#888" />
+                                <EyeOff size={20} color={theme.textSecondary} />
                             ) : (
-                                <Eye size={20} color="#888" />
+                                <Eye size={20} color={theme.textSecondary} />
                             )}
                         </TouchableOpacity>
                     </View>
@@ -254,142 +470,169 @@ export default function LoginScreen({ navigation, route }) {
                         disabled={loading}
                     >
                         {loading ? (
-                            <ActivityIndicator color="#000" />
+                            <ActivityIndicator color={theme.textPrimary} />
                         ) : (
                             <Text style={styles.loginBtnText}>Login</Text>
                         )}
                     </TouchableOpacity>
-                </View>
 
-                {/* Divider */}
-                <View style={styles.dividerContainer}>
-                    <View style={styles.dividerLine} />
-                    <Text style={styles.dividerText}>OR</Text>
-                    <View style={styles.dividerLine} />
-                </View>
+                    {/* Divider */}
+                    <View style={styles.dividerContainer}>
+                        <View style={styles.dividerLine} />
+                        <Text style={styles.dividerText}>OR</Text>
+                        <View style={styles.dividerLine} />
+                    </View>
 
-                {/* Secondary Options */}
-                <View style={styles.secondaryContainer}>
-                    {/* Google Login */}
-                    <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} disabled={loading}>
-                        <Image
-                            source={require('../assets/images/google_ic.webp')}
-                            style={styles.googleIcon}
-                        />
-                        <Text style={styles.googleButtonText}>Continue with Google</Text>
-                    </TouchableOpacity>
+                    {/* Social Buttons */}
+                    <View style={styles.socialRow}>
+                        <TouchableOpacity activeOpacity={0.8} style={styles.socialCircle} onPress={handleGoogleSignIn} disabled={loading}>
+                            <Image
+                                source={require('../assets/images/google_ic.webp')}
+                                style={styles.socialIcon}
+                            />
+                        </TouchableOpacity>
+                        {truecallerAvailable !== false && (
+                            <TouchableOpacity activeOpacity={0.8} style={[styles.socialCircle, styles.phoneCircle]} onPress={handleTruecallerSignIn} disabled={loading}>
+                                <Phone size={22} color="#fff" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
 
-                    {/* Phone Login */}
-                    {/* Phone Login - Disabled
-                    <TouchableOpacity
-                        style={styles.phoneButton}
-                        onPress={() => navigation.navigate('MobileLogin')}
-                        disabled={loading}
-                    >
-                        <Smartphone size={20} color="#fff" style={{ marginRight: 10 }} />
-                        <Text style={styles.phoneButtonText}>Login with Phone Number</Text>
-                    </TouchableOpacity>
-                    */}
-                </View>
+                    {/* Footer Row */}
+                    <View style={styles.footerRow}>
+                        <TouchableOpacity
+                            activeOpacity={0.8}
+                            style={styles.guestButton}
+                            onPress={handleGuestMode}
+                            disabled={loading}
+                        >
+                            <Text style={styles.guestButtonText}>Browse as Guest</Text>
+                        </TouchableOpacity>
 
-                {/* Register Link */}
-                <View style={styles.footerLinkContainer}>
-                    <Text style={styles.footerLinkText}>Don't have an account? </Text>
-                    <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-                        <Text style={styles.footerLinkHighlight}>Register</Text>
-                    </TouchableOpacity>
+                        <View style={styles.footerLinkContainer}>
+                            <Text style={styles.footerLinkText}>Don't have account? </Text>
+                            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+                                <Text style={styles.footerLinkHighlight}>Register</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
                 </View>
 
                 {/* Extra padding for scroll */}
                 <View style={{ height: 40 }} />
             </ScrollView>
+
+            <PermissionConsentModal
+                visible={showPermissionModal}
+                onComplete={handlePermissionConsentDone}
+                onSkip={handlePermissionConsentDone}
+            />
         </KeyboardAvoidingView>
     );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme, isDark) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#121212',
+        backgroundColor: theme.background,
+    },
+    scrollContainer: {
+        flex: 1,
+        backgroundColor: theme.background,
     },
     scrollContent: {
         flexGrow: 1,
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingTop: 60,
     },
-    logo: {
-        width: 160,
-        height: 60,
-        marginBottom: 30,
-        tintColor: '#fff',
+    heroWrapper: {
+        width: '100%',
+        height: 220,
+        position: 'relative',
     },
-    title: {
-        fontSize: 28,
-        color: '#fff',
-        fontWeight: 'bold',
-        marginBottom: 8,
+    heroImage: {
+        width: '100%',
+        height: '100%',
     },
-    subtitle: {
-        fontSize: 16,
-        color: '#aaa',
-        marginBottom: 32,
+    heroGradient: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: 90,
     },
     formContainer: {
         width: '100%',
-        marginBottom: 20,
+        paddingHorizontal: 24,
+        paddingTop: 12,
+    },
+    logo: {
+        width: 100,
+        height: 20,
+        marginTop: 0,
+        marginBottom: 12,
+        tintColor: theme.textPrimary,
+        alignSelf: 'flex-start',
+    },
+    title: {
+        fontSize: 32,
+        color: theme.textPrimary,
+        fontWeight: '900',
+        marginBottom: 6,
+        alignSelf: 'flex-start',
+    },
+    subtitle: {
+        fontSize: 14,
+        color: theme.textSecondary,
+        marginBottom: 28,
+        alignSelf: 'flex-start',
     },
     inputWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#1E1E1E',
-        borderRadius: 16,
-        paddingHorizontal: 16,
+        backgroundColor: theme.cardBg,
+        borderRadius: 28,
+        paddingHorizontal: 20,
         height: 56,
         marginBottom: 16,
-        borderWidth: 1,
-        borderColor: '#333',
     },
     inputIcon: {
         marginRight: 12,
     },
     input: {
         flex: 1,
-        color: '#fff',
-        fontSize: 16,
+        color: theme.textPrimary,
+        fontSize: 15,
         height: '100%',
     },
     forgotPassBtn: {
         alignSelf: 'flex-end',
         marginBottom: 24,
+        marginRight: 4,
     },
     forgotPassText: {
-        color: '#39E29B',
-        fontSize: 14,
-        fontWeight: '600',
+        color: theme.textSecondary,
+        fontSize: 13,
+        fontWeight: '500',
     },
     loginBtn: {
-        backgroundColor: '#39E29B',
+        backgroundColor: theme.buttonBg,
         height: 56,
-        borderRadius: 16,
+        borderRadius: 28,
         alignItems: 'center',
         justifyContent: 'center',
-        shadowColor: '#39E29B',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 4,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 1,
     },
     disabledBtn: {
         opacity: 0.7,
     },
     loginBtnText: {
-        color: '#000',
+        color: theme.textPrimary,
         fontSize: 16,
         fontWeight: 'bold',
     },
-
-    // Divider
     dividerContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -399,67 +642,70 @@ const styles = StyleSheet.create({
     dividerLine: {
         flex: 1,
         height: 1,
-        backgroundColor: '#333',
+        backgroundColor: theme.divider,
     },
     dividerText: {
-        color: '#666',
+        color: theme.textSecondary,
         paddingHorizontal: 16,
-        fontSize: 14,
+        fontSize: 12,
         fontWeight: '600',
     },
-
-    // Secondary Buttons
-    secondaryContainer: {
-        width: '100%',
-        gap: 16,
-    },
-    googleButton: {
+    socialRow: {
         flexDirection: 'row',
-        alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#fff',
-        height: 56,
-        borderRadius: 16,
+        alignItems: 'center',
+        gap: 20,
+        marginBottom: 10,
     },
-    googleIcon: {
+    socialCircle: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: isDark ? theme.buttonBg : '#fff',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    phoneCircle: {
+        backgroundColor: '#0086ff',
+    },
+    socialIcon: {
         width: 24,
         height: 24,
-        marginRight: 12,
     },
-    googleButtonText: {
-        fontSize: 16,
-        color: '#000',
-        fontWeight: 'bold',
+    footerRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        width: '100%',
+        marginTop: 40,
+        paddingHorizontal: 4,
     },
-    phoneButton: {
+    guestButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'transparent',
-        height: 56,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: '#555',
     },
-    phoneButtonText: {
-        fontSize: 16,
-        color: '#fff',
-        fontWeight: 'bold',
+    guestButtonText: {
+        color: theme.textPrimary,
+        fontSize: 14,
+        fontWeight: '500',
+        textDecorationLine: 'underline',
     },
-
-    // Footer
     footerLinkContainer: {
         flexDirection: 'row',
-        marginTop: 40,
         alignItems: 'center',
     },
     footerLinkText: {
-        color: '#888',
-        fontSize: 15,
+        color: theme.textSecondary,
+        fontSize: 14,
     },
     footerLinkHighlight: {
-        color: '#39E29B',
-        fontSize: 15,
+        color: theme.textPrimary,
+        fontSize: 14,
         fontWeight: 'bold',
     },
 });

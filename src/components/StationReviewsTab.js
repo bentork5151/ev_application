@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { Colors } from '../styles/GlobalStyles';
 import { MessageSquarePlus } from 'lucide-react-native';
 import { reviewsApi } from '../services/api';
@@ -7,8 +7,14 @@ import { authService } from '../services/auth';
 import ReviewCard from './ReviewCard';
 import AddReviewModal from './AddReviewModal';
 import StarRating from './StarRating';
+import { useAlert } from '../context/AlertContext';
+import LoginRequiredDialog from './LoginRequiredDialog';
+import { useNavigation } from '@react-navigation/native';
+import { useTheme } from '../context/ThemeContext';
 
 export default function StationReviewsTab({ stationId, stationName }) {
+    const { theme } = useTheme();
+    const { showAlert } = useAlert();
     const [reviews, setReviews] = useState([]);
     const [loading, setLoading] = useState(true);
     const [summary, setSummary] = useState(null);
@@ -18,6 +24,17 @@ export default function StationReviewsTab({ stationId, stationName }) {
     // Modal State
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [editingReview, setEditingReview] = useState(null);
+    const [isGuest, setIsGuest] = useState(false);
+    const [loginPromptVisible, setLoginPromptVisible] = useState(false);
+    const navigation = useNavigation();
+
+    useEffect(() => {
+        const checkGuest = async () => {
+            const guest = await authService.isGuestMode();
+            setIsGuest(guest);
+        };
+        checkGuest();
+    }, []);
 
     const fetchData = useCallback(async () => {
         try {
@@ -46,6 +63,10 @@ export default function StationReviewsTab({ stationId, stationName }) {
     }, [fetchData]);
 
     const handleAddReview = () => {
+        if (isGuest) {
+            setLoginPromptVisible(true);
+            return;
+        }
         setEditingReview(null);
         setIsModalVisible(true);
     };
@@ -61,14 +82,14 @@ export default function StationReviewsTab({ stationId, stationName }) {
             fetchData();
         } catch (error) {
             console.error("Delete failed:", error);
-            Alert.alert("Error", "Failed to delete review.");
+            showAlert("Error", "Failed to delete review.");
         }
     };
 
     if (loading) {
         return (
             <View style={styles.center}>
-                <ActivityIndicator size="large" color={Colors.primaryContainer} />
+                <ActivityIndicator size="large" color="#00B074" />
             </View>
         );
     }
@@ -76,23 +97,23 @@ export default function StationReviewsTab({ stationId, stationName }) {
     return (
         <View style={styles.container}>
             <View style={styles.summaryContainer}>
-                <View style={styles.ratingBigBox}>
-                    <Text style={styles.bigRating}>{summary?.averageRating ? summary.averageRating.toFixed(1) : '0.0'}</Text>
+                <View style={[styles.ratingBigBox, { backgroundColor: theme.cardBg, borderColor: theme.divider }]}>
+                    <Text style={[styles.bigRating, { color: theme.textPrimary }]}>{summary?.averageRating ? summary.averageRating.toFixed(1) : '0.0'}</Text>
                     <StarRating rating={summary?.averageRating || 0} size={20} />
-                    <Text style={styles.totalCount}>{summary?.totalReviews || 0} reviews</Text>
+                    <Text style={[styles.totalCount, { color: theme.textSecondary }]}>{summary?.totalReviews || 0} reviews</Text>
                 </View>
 
                 {/* Write Review CTA */}
                 {!myReview && (
-                    <TouchableOpacity style={styles.writeBtn} onPress={handleAddReview}>
-                        <MessageSquarePlus size={20} color="#fff" />
-                        <Text style={styles.writeBtnText}>Write a Review</Text>
+                    <TouchableOpacity style={[styles.writeBtn, { backgroundColor: theme.white }]} onPress={handleAddReview}>
+                        <MessageSquarePlus size={20} color={theme.textPrimary} />
+                        <Text style={[styles.writeBtnText, { color: theme.textPrimary }]}>Write a Review</Text>
                     </TouchableOpacity>
                 )}
 
                 {myReview && (
                     <View style={styles.myReviewContainer}>
-                        <Text style={styles.sectionTitle}>Your Review</Text>
+                        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Your Review</Text>
                         <ReviewCard
                             review={myReview}
                             isOwnReview={true}
@@ -102,11 +123,11 @@ export default function StationReviewsTab({ stationId, stationName }) {
                     </View>
                 )}
 
-                {(reviews.length > 0 || myReview) && <Text style={[styles.sectionTitle, { marginTop: 20 }]}>All Reviews</Text>}
+                {(reviews.length > 0 || myReview) && <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 20 }]}>All Reviews</Text>}
 
                 {reviews.length === 0 && !myReview && (
                     <View style={styles.emptyState}>
-                        <Text style={styles.emptyText}>No reviews yet. Be the first to review!</Text>
+                        <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No reviews yet. Be the first to review!</Text>
                     </View>
                 )}
 
@@ -133,6 +154,20 @@ export default function StationReviewsTab({ stationId, stationName }) {
                     fetchData();
                 }}
             />
+
+            {/* Login Required Dialog */}
+            <LoginRequiredDialog
+                visible={loginPromptVisible}
+                contextMessage="Sign in to share your experience"
+                onLoginPress={() => {
+                    setLoginPromptVisible(false);
+                    navigation.navigate('Login', {
+                        returnRoute: 'StationDetails',
+                        returnParams: { stationId }
+                    });
+                }}
+                onClose={() => setLoginPromptVisible(false)}
+            />
         </View>
     );
 }
@@ -153,24 +188,19 @@ const styles = StyleSheet.create({
     ratingBigBox: {
         alignItems: 'center',
         marginBottom: 20,
-        backgroundColor: '#1E1E1E',
         padding: 24,
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: '#333',
     },
     bigRating: {
         fontSize: 48,
         fontWeight: 'bold',
-        color: '#fff',
     },
     totalCount: {
-        color: '#888',
         marginTop: 8,
     },
     writeBtn: {
         flexDirection: 'row',
-        backgroundColor: Colors.primaryContainer,
         padding: 16,
         borderRadius: 12,
         alignItems: 'center',
@@ -178,7 +208,6 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     writeBtnText: {
-        color: '#fff',
         fontWeight: 'bold',
         fontSize: 16,
     },
@@ -186,7 +215,6 @@ const styles = StyleSheet.create({
         marginTop: 10,
     },
     sectionTitle: {
-        color: '#fff',
         fontSize: 18,
         fontWeight: 'bold',
         marginBottom: 12,
@@ -196,7 +224,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     emptyText: {
-        color: '#666',
         fontSize: 16,
     }
 });

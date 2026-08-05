@@ -1,195 +1,133 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { 
-    View, Text, StyleSheet, TextInput, TouchableOpacity, 
-    FlatList, Image, ActivityIndicator, SectionList, ActionSheetIOS, Platform 
-} from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, KeyboardAvoidingView, Platform, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Search, Plus, Phone, Mail, MessageSquare, ChevronLeft, User as UserIcon, Star, Filter } from 'lucide-react-native';
-import { Colors, Fonts, GlobalStyles } from '../styles/GlobalStyles';
-import { contactService } from '../services/contactService';
+import { ChevronLeft, Phone, Mail, MessageSquare, HelpCircle, ChevronRight } from 'lucide-react-native';
+import { authService } from '../services/auth';
 import { useAlert } from '../context/AlertContext';
-import AddContactModal from '../components/AddContactModal'; // We'll create this later or just inline it
+import { useTheme } from '../context/ThemeContext';
 
 export default function ContactsScreen({ navigation }) {
+    const { theme, isDark } = useTheme();
     const { showAlert } = useAlert();
-    const [contacts, setContacts] = useState([]);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [isLoading, setIsLoading] = useState(true);
-    const [filterMode, setFilterMode] = useState('all'); // 'all' | 'favorites'
-    const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+    const [user, setUser] = useState(null);
 
     useEffect(() => {
-        loadContacts();
+        loadUser();
     }, []);
 
-    const loadContacts = async () => {
-        setIsLoading(true);
+    const loadUser = async () => {
         try {
-            const data = await contactService.getContacts();
-            setContacts(data);
+            const userData = await authService.getUser();
+            setUser(userData);
         } catch (error) {
-            showAlert("Error", "Failed to load contacts");
-        } finally {
-            setIsLoading(false);
+            console.log("Failed to load user info:", error);
         }
     };
 
-    const handleSearch = (text) => {
-        setSearchQuery(text);
-    };
-
-    const groupedContacts = useMemo(() => {
-        let filtered = contacts.filter(c => {
-            const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                                  c.phone.includes(searchQuery) || 
-                                  c.email.toLowerCase().includes(searchQuery.toLowerCase());
-            const matchesFilter = filterMode === 'favorites' ? c.isFavorite : true;
-            return matchesSearch && matchesFilter;
+    const handleCallSupport = () => {
+        Linking.openURL('tel:+918237943808').catch(() => {
+            showAlert("Error", "Unable to launch dialer. Please call +91 82379 43808 directly.");
         });
-
-        // Grouping logic (A-Z)
-        const groups = {};
-        for (const contact of filtered) {
-            const firstLetter = contact.name.charAt(0).toUpperCase();
-            if (!groups[firstLetter]) {
-                groups[firstLetter] = [];
-            }
-            groups[firstLetter].push(contact);
-        }
-
-        const sections = Object.keys(groups).sort().map(letter => ({
-            title: letter,
-            data: groups[letter].sort((a, b) => a.name.localeCompare(b.name))
-        }));
-
-        // If Favorites mode or no search, maybe add Favorites group at top? 
-        // We'll stick to simple A-Z for now, user can toggle "Favorites" only.
-        return sections;
-    }, [contacts, searchQuery, filterMode]);
-
-    const handleContactPress = (contact) => {
-        navigation.navigate('ContactDetails', { contactId: contact.id, contact });
     };
 
-    const handleLongPress = (contact) => {
-        showAlert(
-            "Quick Actions",
-            `Choose an action for ${contact.name}`,
-            [
-                { text: "Call", onPress: () => console.log('Calling', contact.phone) },
-                { text: "Message", onPress: () => console.log('Messaging', contact.phone) },
-                { text: "Email", onPress: () => console.log('Emailing', contact.email) },
-                { text: "Cancel", style: "cancel" }
-            ]
+    const handleEmailSupport = () => {
+        const subject = encodeURIComponent(`[Bentork Support] Support Query`);
+        const body = encodeURIComponent(
+            `Hi Bentork Support Team,\n\nI have a support query.\n\n` +
+            (user ? `User Details:\nName: ${user.name || 'N/A'}\nEmail: ${user.email || 'N/A'}\n\n` : '') +
+            `Sent from Bentork EV App`
         );
+        Linking.openURL(`mailto:support@bentork.com?subject=${subject}&body=${body}`).catch(() => {
+            showAlert("Error", "Unable to open email client. Please email support@bentork.com directly.");
+        });
     };
 
-    const toggleFavorite = async (id) => {
-        const updatedContacts = await contactService.toggleFavorite(id);
-        setContacts(updatedContacts);
+    const handleWhatsAppSupport = () => {
+        const whatsappMsg = encodeURIComponent(
+            `Hi Bentork Support team, I have a support query.`
+        );
+        Linking.openURL(`https://wa.me/918237943808?text=${whatsappMsg}`).catch(() => {
+            showAlert("Error", "Unable to launch WhatsApp. Please contact +91 82379 43808.");
+        });
     };
-
-    const handleAddContact = async (contactData) => {
-        const newContact = await contactService.addContact(contactData);
-        setContacts([...contacts, newContact]);
-        setIsAddModalVisible(false);
-        showAlert("Success", "Contact added successfully.");
-    };
-
-    const renderContactItem = ({ item }) => (
-        <TouchableOpacity 
-            style={styles.contactCard} 
-            onPress={() => handleContactPress(item)}
-            onLongPress={() => handleLongPress(item)}
-            activeOpacity={0.7}
-        >
-            <View style={styles.avatarContainer}>
-                {item.avatar ? (
-                    <Image source={{ uri: item.avatar }} style={styles.avatarImage} />
-                ) : (
-                    <View style={styles.avatarPlaceholder}>
-                        <Text style={styles.avatarText}>{item.name.charAt(0).toUpperCase()}</Text>
-                    </View>
-                )}
-                {item.status === 'online' && <View style={styles.statusIndicator} />}
-            </View>
-
-            <View style={styles.contactInfo}>
-                <Text style={styles.contactName}>{item.name}</Text>
-                <Text style={styles.contactSub}>{item.phone}</Text>
-            </View>
-
-            <TouchableOpacity style={styles.actionBtn} onPress={() => toggleFavorite(item.id)}>
-                <Star size={20} color={item.isFavorite ? '#FFD700' : '#666'} fill={item.isFavorite ? '#FFD700' : 'transparent'} />
-            </TouchableOpacity>
-        </TouchableOpacity>
-    );
-
-    const renderSectionHeader = ({ section: { title } }) => (
-        <View style={styles.sectionHeader}>
-            <Text style={styles.sectionHeaderText}>{title}</Text>
-        </View>
-    );
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+            <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+            
+            {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-                    <ChevronLeft size={24} color="#fff" />
+                <TouchableOpacity style={[styles.backBtn, { backgroundColor: theme.cardBg }]} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+                    <ChevronLeft size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Contacts</Text>
-                <TouchableOpacity onPress={() => setFilterMode(filterMode === 'all' ? 'favorites' : 'all')}>
-                    <Star size={24} color={filterMode === 'favorites' ? Colors.primaryContainer : '#fff'} fill={filterMode === 'favorites' ? Colors.primaryContainer : 'transparent'} />
-                </TouchableOpacity>
+                <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Help & Support Center</Text>
+                <View style={{ width: 40 }} />
             </View>
 
-            <View style={styles.searchContainer}>
-                <View style={styles.searchBar}>
-                    <Search size={20} color="#666" style={styles.searchIcon} />
-                    <TextInput
-                        style={styles.searchInput}
-                        placeholder="Search contacts..."
-                        placeholderTextColor="#666"
-                        value={searchQuery}
-                        onChangeText={handleSearch}
-                    />
-                </View>
-            </View>
-
-            {isLoading ? (
-                <View style={styles.centerContainer}>
-                    <ActivityIndicator size="large" color={Colors.primaryContainer} />
-                </View>
-            ) : groupedContacts.length === 0 ? (
-                <View style={styles.centerContainer}>
-                    <Text style={styles.emptyText}>No contacts found.</Text>
-                </View>
-            ) : (
-                <SectionList
-                    sections={groupedContacts}
-                    keyExtractor={(item) => item.id}
-                    renderItem={renderContactItem}
-                    renderSectionHeader={renderSectionHeader}
-                    contentContainerStyle={styles.listContent}
-                    stickySectionHeadersEnabled={true}
-                    showsVerticalScrollIndicator={false}
-                />
-            )}
-
-            <TouchableOpacity 
-                style={styles.fab} 
-                onPress={() => setIsAddModalVisible(true)}
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
             >
-                <Plus size={28} color="#000" />
-            </TouchableOpacity>
+                <ScrollView
+                    contentContainerStyle={styles.content}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                >
+                    {/* Welcome Banner */}
+                    <View style={styles.welcomeSection}>
+                        <Text style={[styles.welcomeTitle, { color: theme.textPrimary }]}>{user?.name ? `How can we help, ${user.name.split(' ')[0]}?` : 'How can we help you?'}</Text>
+                        <Text style={[styles.welcomeSubtitle, { color: theme.textSecondary }]}>Select a category below or contact our official team channels. Available 24/7.</Text>
+                    </View>
 
-            {isAddModalVisible && (
-                <AddContactModal 
-                    visible={isAddModalVisible} 
-                    onClose={() => setIsAddModalVisible(false)} 
-                    onSave={handleAddContact} 
-                />
-            )}
+                    {/* Support Channels Grid */}
+                    <View style={styles.gridContainer}>
+                        {/* Phone Card */}
+                        <TouchableOpacity style={[styles.channelCard, { backgroundColor: theme.cardBg }]} onPress={handleCallSupport} activeOpacity={0.8}>
+                            <View style={[styles.iconBox, { backgroundColor: theme.white }]}>
+                                <Phone size={20} color="#00B074" />
+                            </View>
+                            <Text style={[styles.cardMainLabel, { color: theme.textSecondary }]}>Call Helpline</Text>
+                            <Text style={[styles.cardValue, { color: theme.textPrimary }]} numberOfLines={1}>+91 82379 43808</Text>
+                        </TouchableOpacity>
+
+                        {/* Email Card */}
+                        <TouchableOpacity style={[styles.channelCard, { backgroundColor: theme.cardBg }]} onPress={handleEmailSupport} activeOpacity={0.8}>
+                            <View style={[styles.iconBox, { backgroundColor: theme.white }]}>
+                                <Mail size={20} color="#00B074" />
+                            </View>
+                            <Text style={[styles.cardMainLabel, { color: theme.textSecondary }]}>Email Support</Text>
+                            <Text style={[styles.cardValue, { color: theme.textPrimary }]} numberOfLines={1}>support@bentork.com</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Support Interactive Options List */}
+                    <View style={[styles.listCard, { backgroundColor: theme.cardBg }]}>
+                        <TouchableOpacity style={styles.listItem} onPress={handleWhatsAppSupport} activeOpacity={0.7}>
+                            <View style={[styles.listIconBox, { backgroundColor: 'rgba(0, 176, 116, 0.1)' }]}>
+                                <MessageSquare size={18} color="#00B074" />
+                            </View>
+                            <View style={styles.listContent}>
+                                <Text style={[styles.listTitle, { color: theme.textPrimary }]}>Chat on WhatsApp</Text>
+                                <Text style={[styles.listSubText, { color: theme.textSecondary }]}>Instant chat support and queries</Text>
+                            </View>
+                            <ChevronRight size={18} color={theme.textSecondary} />
+                        </TouchableOpacity>
+
+                        <View style={[styles.listDivider, { backgroundColor: theme.divider }]} />
+
+                        <TouchableOpacity style={styles.listItem} onPress={() => navigation.navigate('FAQ')} activeOpacity={0.7}>
+                            <View style={[styles.listIconBox, { backgroundColor: 'rgba(255, 167, 38, 0.1)' }]}>
+                                <HelpCircle size={18} color="#FFA726" />
+                            </View>
+                            <View style={styles.listContent}>
+                                <Text style={[styles.listTitle, { color: theme.textPrimary }]}>Browse FAQs</Text>
+                                <Text style={[styles.listSubText, { color: theme.textSecondary }]}>Search solved problems immediately</Text>
+                            </View>
+                            <ChevronRight size={18} color={theme.textSecondary} />
+                        </TouchableOpacity>
+                    </View>
+                </ScrollView>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
@@ -197,7 +135,6 @@ export default function ContactsScreen({ navigation }) {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#0F0F0F',
     },
     header: {
         flexDirection: 'row',
@@ -209,135 +146,95 @@ const styles = StyleSheet.create({
     backBtn: {
         width: 40,
         height: 40,
-        borderRadius: 12,
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderRadius: 20,
         justifyContent: 'center',
         alignItems: 'center',
     },
     headerTitle: {
-        color: '#fff',
         fontSize: 20,
-        fontWeight: 'bold',
-        fontFamily: Fonts.primary,
+        fontWeight: '900',
+        textAlign: 'center',
+        flex: 1,
     },
-    searchContainer: {
+    content: {
         paddingHorizontal: 20,
-        marginBottom: 10,
+        paddingBottom: 40,
+        paddingTop: 15,
     },
-    searchBar: {
+    welcomeSection: {
+        marginBottom: 20,
+    },
+    welcomeTitle: {
+        fontSize: 24,
+        fontWeight: '900',
+        marginTop: 6,
+        marginBottom: 8,
+    },
+    welcomeSubtitle: {
+        fontSize: 13,
+        lineHeight: 18,
+    },
+    gridContainer: {
         flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#1C1C1E',
-        borderRadius: 16,
-        paddingHorizontal: 15,
-        height: 50,
-        borderWidth: 1,
-        borderColor: '#2C2C2E',
+        gap: 12,
+        marginBottom: 16,
     },
-    searchIcon: {
-        marginRight: 10,
-    },
-    searchInput: {
+    channelCard: {
         flex: 1,
-        color: '#fff',
-        fontSize: 16,
-        height: '100%',
+        borderRadius: 28,
+        padding: 16,
+        alignItems: 'flex-start',
     },
-    centerContainer: {
-        flex: 1,
+    iconBox: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         justifyContent: 'center',
         alignItems: 'center',
+        marginBottom: 16,
     },
-    emptyText: {
-        color: '#888',
-        fontSize: 16,
-        fontFamily: Fonts.primary,
-    },
-    listContent: {
-        paddingHorizontal: 20,
-        paddingBottom: 100,
-    },
-    sectionHeader: {
-        backgroundColor: '#0F0F0F',
-        paddingVertical: 8,
-        marginTop: 10,
-    },
-    sectionHeaderText: {
-        color: Colors.primaryContainer,
-        fontSize: 14,
-        fontWeight: 'bold',
-    },
-    contactCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#1C1C1E',
-        borderRadius: 16,
-        padding: 15,
-        marginBottom: 10,
-    },
-    avatarContainer: {
-        marginRight: 15,
-        position: 'relative',
-    },
-    avatarImage: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-    },
-    avatarPlaceholder: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        backgroundColor: '#2C2C2E',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    avatarText: {
-        color: '#fff',
-        fontSize: 20,
-        fontWeight: 'bold',
-    },
-    statusIndicator: {
-        position: 'absolute',
-        bottom: 2,
-        right: 2,
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: Colors.statusGreen || '#00E676',
-        borderWidth: 2,
-        borderColor: '#1C1C1E',
-    },
-    contactInfo: {
-        flex: 1,
-    },
-    contactName: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '600',
+    cardMainLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
         marginBottom: 4,
     },
-    contactSub: {
-        color: '#888',
+    cardValue: {
         fontSize: 13,
+        fontWeight: '900',
+        marginBottom: 4,
     },
-    actionBtn: {
-        padding: 8,
+    listCard: {
+        borderRadius: 28,
+        paddingHorizontal: 16,
+        marginBottom: 20,
     },
-    fab: {
-        position: 'absolute',
-        bottom: 30,
-        right: 30,
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        backgroundColor: Colors.primaryContainer,
+    listItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+    },
+    listIconBox: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: Colors.primaryContainer,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-        elevation: 8,
+        marginRight: 12,
+    },
+    listContent: {
+        flex: 1,
+    },
+    listTitle: {
+        fontSize: 14,
+        fontWeight: '800',
+    },
+    listSubText: {
+        fontSize: 11,
+        marginTop: 2,
+    },
+    listDivider: {
+        height: 1,
     },
 });

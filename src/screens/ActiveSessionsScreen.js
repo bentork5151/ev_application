@@ -1,19 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Image, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Zap, Clock, MapPin, ChevronRight, AlertCircle } from 'lucide-react-native';
+import { ChevronLeft, Bolt, Clock, ChevronRight, AlertCircle } from 'lucide-react-native';
 import { sessionApi } from '../services/api';
 import { authService } from '../services/auth';
-import { Colors } from '../styles/GlobalStyles';
-import LinearGradient from 'react-native-linear-gradient';
+import LoginRequiredDialog from '../components/LoginRequiredDialog';
+import { useTheme } from '../context/ThemeContext';
 
 export default function ActiveSessionsScreen({ navigation }) {
+    const { theme, isDark } = useTheme();
     const [sessions, setSessions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [isGuest, setIsGuest] = useState(false);
+    const [loginPromptVisible, setLoginPromptVisible] = useState(false);
 
     useEffect(() => {
-        fetchActiveSessions();
+        const checkGuest = async () => {
+            const guest = await authService.isGuestMode();
+            setIsGuest(guest);
+            if (guest) {
+                setLoading(false);
+                setLoginPromptVisible(true);
+            } else {
+                fetchActiveSessions();
+            }
+        };
+        checkGuest();
     }, []);
 
     const fetchActiveSessions = async () => {
@@ -23,13 +36,7 @@ export default function ActiveSessionsScreen({ navigation }) {
                 setLoading(false);
                 return;
             }
-
             const userId = user.id || user.userId || user.email;
-
-            // Note: Our API getActiveSession currently returns only 1 session object.
-            // We'll call the direct endpoint to get all if possible, or handle the single one.
-            // Based on api.js logic, it filters /sessions/active/details.
-
             const response = await sessionApi.getAllActiveSessions(userId);
             setSessions(response || []);
         } catch (error) {
@@ -53,13 +60,16 @@ export default function ActiveSessionsScreen({ navigation }) {
             stationName: session.stationName,
             startTime: session.startTime,
             selectedKwh: session.selectedKwh,
+            amountEntered: session.amountEntered,
+            chargingMode: session.chargingMode,
             planId: session.planId,
             rate: session.rate,
             connectorType: session.connectorType,
             chargerType: session.chargerType,
             stationId: session.stationId,
             latitude: session.latitude,
-            longitude: session.longitude
+            longitude: session.longitude,
+            durationMin: session.durationMin
         });
     };
 
@@ -71,66 +81,63 @@ export default function ActiveSessionsScreen({ navigation }) {
 
     const renderSessionItem = ({ item }) => (
         <TouchableOpacity
-            style={styles.sessionCard}
+            style={[styles.sessionCard, { backgroundColor: theme.cardBg }]}
             onPress={() => handleSessionPress(item)}
             activeOpacity={0.9}
         >
-            <LinearGradient
-                colors={['#2A2A2A', '#1E1E1E']}
-                style={styles.cardGradient}
+            <View style={styles.cardHeader}>
+                <View style={[styles.iconWrapper, { backgroundColor: theme.white }]}>
+                    <Bolt size={18} color="#00B074" />
+                </View>
+                <View style={styles.headerInfo}>
+                    <Text style={[styles.stationName, { color: theme.textPrimary }]} numberOfLines={1}>{item.stationName}</Text>
+                    <View style={styles.statusBadge}>
+                        <View style={styles.statusDot} />
+                        <Text style={styles.statusText}>ACTIVE</Text>
+                    </View>
+                </View>
+                <ChevronRight size={20} color={theme.textSecondary} />
+            </View>
+
+            <View style={[styles.cardDivider, { backgroundColor: theme.divider }]} />
+
+            <View style={styles.cardBody}>
+                <View style={styles.infoRow}>
+                    <Clock size={16} color={theme.textSecondary} style={styles.infoIcon} />
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Started at:</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>{formatStartTime(item.startTime)}</Text>
+                </View>
+                <View style={styles.infoRow}>
+                    <Bolt size={16} color={theme.textSecondary} style={styles.infoIcon} />
+                    <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Charger Type:</Text>
+                    <Text style={[styles.infoValue, { color: theme.textPrimary }]}>{item.chargerType}</Text>
+                </View>
+            </View>
+
+            <TouchableOpacity
+                style={[styles.resumeBtn, { backgroundColor: theme.white }]}
+                onPress={() => handleSessionPress(item)}
             >
-                <View style={styles.cardHeader}>
-                    <View style={styles.iconWrapper}>
-                        <Zap size={20} color={Colors.statusGreen} fill={Colors.statusGreen} />
-                    </View>
-                    <View style={styles.headerInfo}>
-                        <Text style={styles.stationName} numberOfLines={1}>{item.stationName}</Text>
-                        <View style={styles.statusBadge}>
-                            <View style={styles.statusDot} />
-                            <Text style={styles.statusText}>ACTIVE</Text>
-                        </View>
-                    </View>
-                    <ChevronRight size={20} color="#555" />
-                </View>
-
-                <View style={styles.cardDivider} />
-
-                <View style={styles.cardBody}>
-                    <View style={styles.infoRow}>
-                        <Clock size={16} color="#888" style={styles.infoIcon} />
-                        <Text style={styles.infoLabel}>Started at:</Text>
-                        <Text style={styles.infoValue}>{formatStartTime(item.startTime)}</Text>
-                    </View>
-                    <View style={styles.infoRow}>
-                        <Zap size={16} color="#888" style={styles.infoIcon} />
-                        <Text style={styles.infoLabel}>Charger Type:</Text>
-                        <Text style={styles.infoValue}>{item.chargerType}</Text>
-                    </View>
-                </View>
-
-                <TouchableOpacity
-                    style={styles.resumeBtn}
-                    onPress={() => handleSessionPress(item)}
-                >
-                    <Text style={styles.resumeBtnText}>View Progress</Text>
-                </TouchableOpacity>
-            </LinearGradient>
+                <Text style={[styles.resumeBtnText, { color: theme.textPrimary }]}>View Progress</Text>
+            </TouchableOpacity>
         </TouchableOpacity>
     );
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+            <StatusBar translucent backgroundColor="transparent" barStyle={isDark ? 'light-content' : 'dark-content'} />
+            
             <View style={styles.header}>
-                <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-                    <ChevronLeft size={28} color={Colors.white} />
+                <TouchableOpacity style={[styles.backBtn, { backgroundColor: theme.cardBg }]} onPress={() => navigation.goBack()}>
+                    <ChevronLeft size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Active Sessions</Text>
-                <View style={{ width: 28 }} />
+                <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Active Sessions</Text>
+                <View style={{ width: 40 }} />
             </View>
 
             {loading ? (
                 <View style={styles.centerContainer}>
-                    <ActivityIndicator size="large" color={Colors.statusGreen} />
+                    <ActivityIndicator size="large" color="#00B074" />
                 </View>
             ) : (
                 <FlatList
@@ -139,25 +146,41 @@ export default function ActiveSessionsScreen({ navigation }) {
                     keyExtractor={(item) => item.sessionId.toString()}
                     contentContainerStyle={styles.listContent}
                     refreshControl={
-                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.statusGreen} />
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#00B074" />
                     }
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
-                            <View style={styles.emptyIconWrapper}>
-                                <AlertCircle size={48} color="#333" />
+                            <View style={[styles.emptyIconWrapper, { backgroundColor: theme.cardBg }]}>
+                                <AlertCircle size={40} color={theme.textPrimary} />
                             </View>
-                            <Text style={styles.emptyTitle}>No Active Sessions</Text>
-                            <Text style={styles.emptySubtitle}>You don't have any charging sessions running right now.</Text>
+                            <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>No Active Sessions</Text>
+                            <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>You don't have any charging sessions running right now.</Text>
                             <TouchableOpacity
-                                style={styles.startBtn}
+                                style={[styles.startBtn, { backgroundColor: theme.white }]}
                                 onPress={() => navigation.navigate('Home')}
                             >
-                                <Text style={styles.startBtnText}>Find a Station</Text>
+                                <Text style={[styles.startBtnText, { color: theme.textPrimary }]}>Find a Station</Text>
                             </TouchableOpacity>
                         </View>
                     }
                 />
             )}
+
+            {/* Login Required Dialog */}
+            <LoginRequiredDialog
+                visible={loginPromptVisible}
+                contextMessage="Sign in to view your active charging sessions"
+                onLoginPress={() => {
+                    setLoginPromptVisible(false);
+                    navigation.replace('Login', {
+                        returnRoute: 'ActiveSessions'
+                    });
+                }}
+                onClose={() => {
+                    setLoginPromptVisible(false);
+                    navigation.goBack();
+                }}
+            />
         </SafeAreaView>
     );
 }
@@ -165,7 +188,6 @@ export default function ActiveSessionsScreen({ navigation }) {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.matteBlack,
     },
     header: {
         flexDirection: 'row',
@@ -173,16 +195,19 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         paddingHorizontal: 20,
         paddingVertical: 15,
-        borderBottomWidth: 1,
-        borderBottomColor: '#1A1A1A',
     },
     backBtn: {
-        padding: 5,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     headerTitle: {
-        color: Colors.white,
-        fontSize: 20,
-        fontWeight: 'bold',
+        fontSize: 22,
+        fontWeight: '900',
+        textAlign: 'center',
+        flex: 1,
     },
     listContent: {
         padding: 20,
@@ -195,12 +220,7 @@ const styles = StyleSheet.create({
     },
     sessionCard: {
         marginBottom: 20,
-        borderRadius: 24,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
-    },
-    cardGradient: {
+        borderRadius: 28,
         padding: 20,
     },
     cardHeader: {
@@ -210,8 +230,7 @@ const styles = StyleSheet.create({
     iconWrapper: {
         width: 44,
         height: 44,
-        borderRadius: 14,
-        backgroundColor: 'rgba(0, 230, 118, 0.1)',
+        borderRadius: 22,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 15,
@@ -220,9 +239,8 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     stationName: {
-        color: Colors.white,
-        fontSize: 18,
-        fontWeight: 'bold',
+        fontSize: 16,
+        fontWeight: '900',
         marginBottom: 4,
     },
     statusBadge: {
@@ -230,22 +248,21 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     statusDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: Colors.statusGreen,
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#00B074',
         marginRight: 6,
     },
     statusText: {
-        color: Colors.statusGreen,
-        fontSize: 12,
-        fontWeight: '700',
-        letterSpacing: 1,
+        color: '#00B074',
+        fontSize: 11,
+        fontWeight: '900',
+        letterSpacing: 0.5,
     },
     cardDivider: {
         height: 1,
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        marginVertical: 20,
+        marginVertical: 16,
     },
     cardBody: {
         gap: 12,
@@ -259,73 +276,59 @@ const styles = StyleSheet.create({
         marginRight: 10,
     },
     infoLabel: {
-        color: '#888',
-        fontSize: 14,
+        fontSize: 13,
+        fontWeight: '600',
         marginRight: 5,
     },
     infoValue: {
-        color: Colors.white,
-        fontSize: 14,
-        fontWeight: '500',
+        fontSize: 13,
+        fontWeight: '800',
     },
     resumeBtn: {
-        backgroundColor: Colors.statusGreen,
-        height: 52,
-        borderRadius: 16,
+        height: 56,
+        borderRadius: 28,
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: Colors.statusGreen,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 5,
     },
     resumeBtnText: {
-        color: Colors.matteBlack,
-        fontSize: 16,
-        fontWeight: 'bold',
+        fontSize: 15,
+        fontWeight: '900',
     },
     emptyContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 100,
         paddingHorizontal: 40,
+        paddingTop: 80,
     },
     emptyIconWrapper: {
-        width: 100,
-        height: 100,
-        borderRadius: 50,
-        backgroundColor: '#1E1E1E',
+        width: 80,
+        height: 80,
+        borderRadius: 40,
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 24,
+        marginBottom: 20,
     },
     emptyTitle: {
-        color: Colors.white,
-        fontSize: 22,
-        fontWeight: 'bold',
-        marginBottom: 12,
-        textAlign: 'center',
+        fontSize: 18,
+        fontWeight: '900',
+        marginBottom: 8,
     },
     emptySubtitle: {
-        color: '#666',
-        fontSize: 16,
+        fontSize: 13,
         textAlign: 'center',
-        lineHeight: 24,
-        marginBottom: 32,
+        lineHeight: 18,
+        marginBottom: 30,
     },
     startBtn: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        paddingHorizontal: 30,
-        paddingVertical: 15,
-        borderRadius: 30,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
+        height: 56,
+        borderRadius: 28,
+        paddingHorizontal: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     startBtnText: {
-        color: Colors.white,
-        fontSize: 16,
-        fontWeight: '600',
+        fontSize: 15,
+        fontWeight: '900',
     },
 });

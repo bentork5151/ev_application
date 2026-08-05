@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, StatusBar, Dimensions, ActivityIndicator, Animated, Linking, Alert, Platform, Switch, PanResponder, Vibration } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, StatusBar, Dimensions, ActivityIndicator, Animated, Linking, Platform, Switch, PanResponder, Vibration } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Slider from '@react-native-community/slider';
 import { ChevronLeft, MapPin, BatteryCharging, Navigation, Zap, X, Navigation2, Check, Plus, ChevronUp, ChevronDown } from 'lucide-react-native';
@@ -77,7 +77,7 @@ export default function TripPlannerScreen({ navigation }) {
             toValue: idx,
             duration: 250,
             easing: Animated.linear, // Or Easing.out(Easing.cubic)
-            useNativeDriver: false,
+            useNativeDriver: true,
         }).start();
 
         summaryTabRef.current = idx;
@@ -256,8 +256,8 @@ export default function TripPlannerScreen({ navigation }) {
 
         console.log('[Nav] Final URL:', url);
 
-        // Native Alert Confirmation
-        Alert.alert(
+        // Alert Confirmation
+        showAlert(
             "Start Navigation",
             `Opening in Google Maps with ${selectedStations.length} stops.`,
             [
@@ -1502,9 +1502,9 @@ function SummaryTabContent({ stations, selectedStations, toggleStation, emptyMes
         Animated.timing(fadeAnim, {
             toValue: 1,
             duration: 180,
-            useNativeDriver: false,
+            useNativeDriver: true,
         }).start();
-    }, [stations]);
+    }, [stations, fadeAnim]);
 
     return (
         <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
@@ -1551,7 +1551,7 @@ function SummaryTabContent({ stations, selectedStations, toggleStation, emptyMes
                                 </TouchableOpacity>
                             </View>
                             <View style={{ marginTop: 8 }}>
-                                {station.status === 'Available' ?
+                                {(station.status || '').toLowerCase() === 'available' ?
                                     <Text style={{ color: Colors.white, fontSize: 12 }}>Available • Fast Charging</Text> :
                                     <Text style={{ color: 'orange', fontSize: 12 }}>{station.status}</Text>
                                 }

@@ -6,7 +6,6 @@ import {
     StyleSheet,
     PermissionsAndroid,
     Platform,
-    Alert,
     TouchableOpacity,
     Dimensions,
     StatusBar,
@@ -18,43 +17,55 @@ import {
 } from 'react-native';
 import { Camera } from 'react-native-camera-kit';
 import { useNavigation, useRoute, useFocusEffect, useIsFocused } from '@react-navigation/native';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Flashlight } from 'lucide-react-native';
+import { useAlert } from '../context/AlertContext';
+import { chargersApi, stationsApi } from '../services/api';
 
 const { width, height } = Dimensions.get('window');
 const SCAN_AREA_SIZE = width * 0.7; // Square size, 1:1 ratio
 const OVERLAY_COLOR = 'rgba(0, 0, 0, 0.6)';
 
 const QRScannerScreen = () => {
+    const { showAlert } = useAlert();
     const navigation = useNavigation();
     const route = useRoute();
     const isFocused = useIsFocused();
     const [hasPermission, setHasPermission] = useState(false);
     const [scanned, setScanned] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [torchOn, setTorchOn] = useState(false);
     
     // Scanning Line Animation
     const scanLineAnim = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
-        const lineAnimation = Animated.loop(
-            Animated.sequence([
-                Animated.timing(scanLineAnim, {
-                    toValue: 1,
-                    duration: 2000,
-                    easing: Easing.inOut(Easing.linear),
-                    useNativeDriver: true,
-                }),
-                Animated.timing(scanLineAnim, {
-                    toValue: 0,
-                    duration: 2000,
-                    easing: Easing.inOut(Easing.linear),
-                    useNativeDriver: true,
-                }),
-            ])
-        );
-        lineAnimation.start();
-        return () => lineAnimation.stop();
-    }, []);
+        let lineAnimation;
+        if (!scanned && !isProcessing) {
+            lineAnimation = Animated.loop(
+                Animated.sequence([
+                    Animated.timing(scanLineAnim, {
+                        toValue: 1,
+                        duration: 2000,
+                        easing: Easing.inOut(Easing.linear),
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(scanLineAnim, {
+                        toValue: 0,
+                        duration: 2000,
+                        easing: Easing.inOut(Easing.linear),
+                        useNativeDriver: true,
+                    }),
+                ])
+            );
+            lineAnimation.start();
+        }
+        return () => {
+            if (lineAnimation) {
+                lineAnimation.stop();
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scanned, isProcessing]);
 
     // Data passed from Home
     const stations = route.params?.stations || [];
@@ -66,6 +77,7 @@ const QRScannerScreen = () => {
         useCallback(() => {
             setScanned(false);
             setIsProcessing(false);
+            setTorchOn(false);
         }, [])
     );
 
@@ -78,6 +90,7 @@ const QRScannerScreen = () => {
             appState.current = nextAppState;
         });
         return () => subscription.remove();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const checkPermission = async () => {
@@ -100,14 +113,7 @@ const QRScannerScreen = () => {
     const requestPermission = async () => {
         try {
             const granted = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.CAMERA,
-                {
-                    title: 'Camera Permission',
-                    message: 'App needs access to your camera to scan QR codes for charging.',
-                    buttonNeutral: 'Ask Me Later',
-                    buttonNegative: 'Cancel',
-                    buttonPositive: 'OK',
-                },
+                PermissionsAndroid.PERMISSIONS.CAMERA
             );
             if (granted === PermissionsAndroid.RESULTS.GRANTED) {
                 setHasPermission(true);
@@ -117,69 +123,149 @@ const QRScannerScreen = () => {
         } catch (err) {
             console.warn(err);
         }
-    }
+    };
 
-    const processQRCode = (code) => {
+    const processQRCode = async (code) => {
         console.log("Processing QR:", code);
 
-        // Expected format: http://web.bentork.in/splash/OCPPCHG-1123-0116
-        // Extract ID: OCPPCHG-1123-0116
+        // Pre-clean: strip trailing slashes and spaces
+        const cleanCode = code.replace(/\/+$/, "").trim();
 
+        // Robust charger ID extraction
         let chargerId = null;
 
-        if (code.includes('splash/')) {
-            const parts = code.split('splash/');
-            if (parts.length > 1) {
-                chargerId = parts[1].trim();
+        if (cleanCode.startsWith('http://') || cleanCode.startsWith('https://') || cleanCode.includes('//')) {
+            try {
+                // 1. Check for identifier query parameters first
+                const queryIndex = cleanCode.indexOf('?');
+                if (queryIndex !== -1) {
+                    const queryString = cleanCode.substring(queryIndex + 1);
+                    const params = queryString.split('&');
+                    for (const param of params) {
+                        const [key, value] = param.split('=');
+                        if (key && value) {
+                            const normalizedKey = key.trim().toLowerCase();
+                            if (['ocppid', 'id', 'chargerid', 'boxid', 'charger_id'].includes(normalizedKey)) {
+                                chargerId = decodeURIComponent(value.split('#')[0].trim());
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // 2. If not found in queries, fallback to path parsing
+                if (!chargerId) {
+                    const cleanUrlWithoutQuery = cleanCode.split(/[?#]/)[0];
+                    if (cleanUrlWithoutQuery.includes('splash/')) {
+                        const parts = cleanUrlWithoutQuery.split('splash/');
+                        if (parts.length > 1) {
+                            chargerId = parts[1].trim();
+                        }
+                    } else {
+                        const segments = cleanUrlWithoutQuery.split('/');
+                        const lastSegment = segments.filter(Boolean).pop();
+                        if (lastSegment && lastSegment !== 'receipt' && lastSegment !== 'config-charging') {
+                            chargerId = lastSegment.trim();
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn("Error parsing URL inside scanner:", err);
             }
-        } else {
-            // Fallback: assume code IS the ID if it looks like one
-            chargerId = code;
+        }
+
+        // 3. Fallback: assume the code itself is the ID
+        if (!chargerId) {
+            chargerId = cleanCode;
         }
 
         console.log("Extracted ID:", chargerId);
 
-        if (chargerId && allChargers.length > 0) {
-            // Find charger in the provided list
-            // Check against ocppId, id, boxId...
-            const charger = allChargers.find(c =>
-                (c.ocppId && c.ocppId === chargerId) ||
-                (c.id && String(c.id) === chargerId) ||
-                (c.charger_id && c.charger_id === chargerId)
-            );
+        let charger = null;
+        let station = null;
 
+        const matchesId = (fieldVal, searchId) => {
+            if (!fieldVal || !searchId) return false;
+            return String(fieldVal).trim().toLowerCase() === String(searchId).trim().toLowerCase();
+        };
+
+        if (chargerId) {
+            // 1. Try to find the charger in the locally provided list first
+            if (allChargers && allChargers.length > 0) {
+                charger = allChargers.find(c =>
+                    matchesId(c.ocppId, chargerId) ||
+                    matchesId(c.id, chargerId) ||
+                    matchesId(c.charger_id, chargerId) ||
+                    matchesId(c.boxId, chargerId)
+                );
+            }
+
+            // 2. If not found locally, fetch fresh data directly from the server
+            if (!charger) {
+                try {
+                    console.log("Charger not found locally. Fetching fresh charger list from server...");
+                    const freshChargers = await chargersApi.getAllChargers();
+                    const chargersList = Array.isArray(freshChargers) ? freshChargers : (freshChargers?.chargers || []);
+                    if (chargersList.length > 0) {
+                        charger = chargersList.find(c =>
+                            matchesId(c.ocppId, chargerId) ||
+                            matchesId(c.id, chargerId) ||
+                            matchesId(c.charger_id, chargerId) ||
+                            matchesId(c.boxId, chargerId)
+                        );
+                    }
+                } catch (apiError) {
+                    console.warn("Failed to fetch fresh chargers from server:", apiError);
+                }
+            }
+
+            // 3. Find matching station
             if (charger) {
-                console.log("Scanner Found Charger:", charger.id);
-                // Find Station
-                const station = stations.find(s => s.id === charger.stationId);
+                // Check local station list
+                station = stations.find(s => s.id === charger.stationId);
 
-                if (station) {
-                    // Success Vibration (Consolidated here for robustness)
-                    console.log("Vibrating for success...");
-                    Vibration.vibrate([0, 80, 40, 80]); // Robust double tap pattern
-                    
-                    // Redirect directly to Config screen as requested
-                    navigation.navigate('Config', {
-                        stationId: station.id,
-                        stationName: station.name || station.stationName || station.station_name,
-                        chargerId: charger.id,
-                        boxId: charger.ocppId || charger.boxId || charger.charger_id,
-                        chargerType: charger.chargerType || charger.type || charger.charger_id,
-                        maxPower: charger.maxPower || charger.power || '120',
-                        connectorType: charger.connectorType || 'CCS 2',
-                        status: charger.status || 'Available',
-                        latitude: station.latitude,
-                        longitude: station.longitude,
-                        rate: charger.rate || station.rate || '0'
-                    });
-                    return;
+                // Fetch fresh stations if not found locally
+                if (!station) {
+                    try {
+                        console.log("Station not found locally. Fetching fresh station list from server...");
+                        const freshStationsData = await stationsApi.getAllStations();
+                        const freshStations = Array.isArray(freshStationsData) ? freshStationsData : (freshStationsData?.stations || []);
+                        station = freshStations.find(s => s.id === charger.stationId);
+                    } catch (apiError) {
+                        console.warn("Failed to fetch fresh stations from server:", apiError);
+                    }
                 }
             }
         }
 
+        if (charger && station) {
+            console.log("Scanner Found Charger:", charger.id, "at Station:", station.name);
+            // Success Vibration (Consolidated here for robustness)
+            console.log("Vibrating for success...");
+            Vibration.vibrate([0, 80, 40, 80]); // Robust double tap pattern
+            
+            // Redirect directly to Config screen as requested and replace scanner in stack
+            navigation.replace('Config', {
+                stationId: station.id,
+                stationName: station.name || station.stationName || station.station_name,
+                chargerId: charger.id,
+                boxId: charger.ocppId || charger.boxId || charger.charger_id,
+                chargerType: charger.chargerType || charger.type || charger.charger_id,
+                maxPower: charger.maxPower || charger.power || '120',
+                connectorType: charger.connectorType || 'CCS 2',
+                status: charger.status || 'Available',
+                latitude: station.latitude,
+                longitude: station.longitude,
+                rate: charger.rate || station.rate || '0',
+                platformFeePerKwh: charger.platformFeePerKwh
+            });
+            return;
+        }
+
         // If not found or logic failed
+        console.warn("Invalid QR scanned code:", code);
         setIsProcessing(false);
-        Alert.alert("Invalid QR", `Code: ${code}\nCould not find a matching charger.`, [
+        showAlert("Invalid QR", "Cannot find matching charger or charger might be offline.", [
             { text: "Retry", onPress: () => setScanned(false) }
         ]);
     };
@@ -221,15 +307,19 @@ const QRScannerScreen = () => {
         <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor="black" translucent />
 
-            <Camera
-                key={isFocused ? 'focused' : 'blurred'}
-                style={styles.camera}
-                scanBarcode={isFocused && !scanned && !isProcessing}
-                onReadCode={onReadCode}
-                showFrame={false} // Custom Frame
-                laserColor='transparent' // Hide default laser
-                frameColor='transparent' // Hide default frame
-            />
+            {isFocused && (
+                <Camera
+                    key="scanner_camera"
+                    style={styles.camera}
+                    scanBarcode={!scanned && !isProcessing}
+                    onReadCode={onReadCode}
+                    showFrame={false} // Custom Frame
+                    laserColor='transparent' // Hide default laser
+                    frameColor='transparent' // Hide default frame
+                    scanThrottleDelay={300} // Reduce delay between scans to 300ms for faster code scan response
+                    torchMode={torchOn ? 'on' : 'off'}
+                />
+            )}
 
             {/* Dark Overlay to create 1:1 Scan Box */}
             <View style={styles.overlayContainer}>
@@ -276,10 +366,18 @@ const QRScannerScreen = () => {
 
             {/* Header Overlay */}
             <View style={styles.headerOverlay}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <ChevronLeft color="white" size={28} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                        <ChevronLeft color="white" size={28} />
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>Scan QR</Text>
+                </View>
+                <TouchableOpacity 
+                    onPress={() => setTorchOn(!torchOn)} 
+                    style={[styles.backButton, { marginRight: 0 }]}
+                >
+                    <Flashlight color={torchOn ? '#00E676' : 'white'} size={24} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Scan QR</Text>
             </View>
         </View>
     );
@@ -400,32 +498,32 @@ const styles = StyleSheet.create({
         left: 0,
         borderRightWidth: 0,
         borderBottomWidth: 0,
-        borderRadius: 4,
-        borderTopLeftRadius: 16
+        borderRadius: 0,
+        borderTopLeftRadius: 0
     },
     cornerTR: {
         top: 0,
         right: 0,
         borderLeftWidth: 0,
         borderBottomWidth: 0,
-        borderRadius: 4,
-        borderTopRightRadius: 16
+        borderRadius: 0,
+        borderTopRightRadius: 0
     },
     cornerBL: {
         bottom: 0,
         left: 0,
         borderRightWidth: 0,
         borderTopWidth: 0,
-        borderRadius: 4,
-        borderBottomLeftRadius: 16
+        borderRadius: 0,
+        borderBottomLeftRadius: 0
     },
     cornerBR: {
         bottom: 0,
         right: 0,
         borderLeftWidth: 0,
         borderTopWidth: 0,
-        borderRadius: 4,
-        borderBottomRightRadius: 16
+        borderRadius: 0,
+        borderBottomRightRadius: 0
     },
     scanLine: {
         width: '100%',

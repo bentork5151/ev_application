@@ -1,6 +1,5 @@
-// src/navigation/AppNavigator.js
 import React, { useEffect } from 'react';
-import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef, DefaultTheme as NavDefaultTheme, DarkTheme as NavDarkTheme } from '@react-navigation/native';
 import { createStackNavigator, CardStyleInterpolators, TransitionPresets } from '@react-navigation/stack';
 import { DeviceEventEmitter } from 'react-native';
 
@@ -35,17 +34,38 @@ import MyBookingsScreen from '../screens/MyBookingsScreen';
 import ActiveSessionsScreen from '../screens/ActiveSessionsScreen';
 import TestScreen from '../screens/TestScreen';
 import ContactsScreen from '../screens/ContactsScreen';
-import ContactDetailsScreen from '../screens/ContactDetailsScreen';
+import RfidScreen from '../screens/RfidScreen';
+import RaiseRequestScreen from '../screens/RaiseRequestScreen';
+import RequestStatusScreen from '../screens/RequestStatusScreen';
+import ReferralScreen from '../screens/ReferralScreen';
+import BatteryWarrantyScreen from '../screens/BatteryWarrantyScreen';
+import BatteryWarrantyStatusScreen from '../screens/BatteryWarrantyStatusScreen';
+import MyOrdersScreen from '../screens/MyOrdersScreen';
+import OrderDetailScreen from '../screens/OrderDetailScreen';
 
 import { useAlert } from '../context/AlertContext';
+import { useTheme } from '../context/ThemeContext';
 import { authService } from '../services/auth';
-
+ 
+ 
 // Navigation Reference for external access or handling resets
 export const navigationRef = createNavigationContainerRef();
 const Stack = createStackNavigator();
-
+ 
 export default function AppNavigator() {
     const { showAlert } = useAlert();
+    const { theme, isDark } = useTheme();
+
+    const customNavTheme = {
+        ...(isDark ? NavDarkTheme : NavDefaultTheme),
+        colors: {
+            ...(isDark ? NavDarkTheme.colors : NavDefaultTheme.colors),
+            background: theme.background,
+            card: theme.cardBg,
+            text: theme.textPrimary,
+            border: theme.divider,
+        },
+    };
 
     useEffect(() => {
         // Listen for Session Expired Events (401 from API)
@@ -89,7 +109,7 @@ export default function AppNavigator() {
     };
 
     return (
-        <NavigationContainer ref={navigationRef} linking={linking}>
+        <NavigationContainer ref={navigationRef} linking={linking} theme={customNavTheme}>
             <Stack.Navigator screenOptions={{ headerShown: false }}>
                 <Stack.Screen name="Splash" component={SplashScreen} />
                 <Stack.Screen name="Login" component={LoginScreen} />
@@ -139,14 +159,23 @@ export default function AppNavigator() {
                 <Stack.Screen name="StationDetails" component={StationDetailsScreen} />
                 <Stack.Screen name="MyBookings" component={MyBookingsScreen} />
                 <Stack.Screen name="ActiveSessions" component={ActiveSessionsScreen} />
+                <Stack.Screen name="ActiveSessionScreen" component={SessionScreen} />
                 <Stack.Screen 
                     name="Test" 
                     component={TestScreen} 
                     options={{ animation: 'none', headerShown: false }}
                 />
                 <Stack.Screen name="Contacts" component={ContactsScreen} />
-                <Stack.Screen name="ContactDetails" component={ContactDetailsScreen} />
+                <Stack.Screen name="RfidApplication" component={RfidScreen} />
+                <Stack.Screen name="RaiseRequest" component={RaiseRequestScreen} />
+                <Stack.Screen name="RequestStatus" component={RequestStatusScreen} />
+                <Stack.Screen name="Referral" component={ReferralScreen} />
+                <Stack.Screen name="BatteryWarranty" component={BatteryWarrantyScreen} />
+                <Stack.Screen name="BatteryWarrantyStatus" component={BatteryWarrantyStatusScreen} />
+                <Stack.Screen name="MyOrders" component={MyOrdersScreen} />
+                <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
             </Stack.Navigator>
         </NavigationContainer>
     );
 }
+

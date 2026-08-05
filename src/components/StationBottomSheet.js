@@ -1,19 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Dimensions, Animated, TouchableOpacity, ScrollView, Image, PanResponder, Easing, Share, Linking, Platform, Alert } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, Dimensions, Animated, TouchableOpacity, ScrollView, Image, PanResponder, Easing, Share, Linking, Platform, DeviceEventEmitter, LayoutAnimation, UIManager } from 'react-native';
+import { chargersApi, cafesApi } from '../services/api';
 import BoltIcon from '../assets/icons/Rounded Fill/bolt_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.svg';
-import BoltOutlineIcon from '../assets/icons/Outlined/bolt_24dp_E3E3E3_FILL0_wght300_GRAD0_opsz24.svg';
-
-
 import NavigationIcon from '../assets/icons/Rounded Fill/navigation_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.svg';
-import { X, ChevronRight, Star, Clock, Share2, Bookmark, HelpCircle, Utensils, Coffee, ShieldAlert, Phone, ShoppingBag } from 'lucide-react-native';
-import { Colors } from '../styles/GlobalStyles';
+import { X, ChevronRight, Star, Clock, Share2, HelpCircle, Utensils, Coffee, Phone, ShoppingBag } from 'lucide-react-native';
 import { getConnectorIcon } from '../utils/connectorUtils';
-
 import EmergencyContactDialog from './EmergencyContactDialog';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const BOTTOM_SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.75;
-const BOTTOM_SHEET_MIN_HEIGHT = SCREEN_HEIGHT * 0.4;
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export default function StationBottomSheet({
     station,
@@ -28,7 +26,6 @@ export default function StationBottomSheet({
     const overlayOpacity = useRef(new Animated.Value(0)).current;
     const isClosing = useRef(false);
 
-    // Cache last station to animate out smoothly
     const [lastStation, setLastStation] = useState(station);
     const [showEmergency, setShowEmergency] = useState(false);
     const [activeFilter, setActiveFilter] = useState('All');
@@ -40,6 +37,135 @@ export default function StationBottomSheet({
     }, [station]);
 
     const activeStation = station || lastStation;
+
+    const [chargerList, setChargerList] = useState(chargers || []);
+    const [backendCafes, setBackendCafes] = useState([]);
+
+    useEffect(() => {
+        const fetchBackendCafes = async () => {
+            if (!activeStation?.id) return;
+            try {
+                const data = await cafesApi.getCafesByStation(activeStation.id);
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                if (Array.isArray(data)) {
+                    setBackendCafes(data);
+                } else {
+                    setBackendCafes([]);
+                }
+            } catch (err) {
+                console.log('Backend cafe fetch failed in bottom sheet:', err?.message);
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setBackendCafes([]);
+            }
+        };
+        if (visible && activeStation?.id) {
+            fetchBackendCafes();
+        } else if (!visible) {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            setBackendCafes([]);
+        }
+    }, [activeStation?.id, visible]);
+
+    useEffect(() => {
+        if (chargers) setChargerList(chargers);
+    }, [chargers]);
+
+    const chargerListRef = useRef(chargerList);
+    useEffect(() => {
+        chargerListRef.current = chargerList;
+    }, [chargerList]);
+
+    const fetchFreshChargerStatuses = useCallback(async () => {
+        const currentList = chargerListRef.current;
+        if (currentList && currentList.length > 0 && activeStation) {
+            try {
+                console.log("StationBottomSheet: Fetching fresh charger statuses...");
+                const stationIdStr = String(activeStation.id);
+                const updatedList = await Promise.all(
+                    currentList.map(async (c) => {
+                        const sId = c.stationId || c.station_id || (c.station && (c.station.id || c.station));
+                        if (String(sId) === stationIdStr) {
+                             try {
+                                 const identifier = c.ocppId || c.boxId;
+                                 let fresh = null;
+                                 if (identifier) {
+                                     fresh = await chargersApi.getChargerByOcppId(identifier);
+                                 } else {
+                                     fresh = await chargersApi.getChargerById(c.id);
+                                 }
+                                 if (fresh) {
+                                     return { ...c, ...fresh };
+                                 }
+                             } catch (err) {
+                                 console.log(`Failed to fetch fresh status for charger ${c.id}:`, err.message);
+                             }
+                        }
+                        return c;
+                    })
+                );
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setChargerList(updatedList);
+            } catch (error) {
+                console.log("Error in fetchFreshChargerStatuses:", error.message);
+            }
+        }
+    }, [activeStation]);
+
+    useEffect(() => {
+        if (visible && activeStation) {
+            fetchFreshChargerStatuses();
+        }
+    }, [visible, activeStation, fetchFreshChargerStatuses]);
+
+    useEffect(() => {
+        if (!activeStation) return;
+        
+        const handleBatchUpdate = ({ chargers: newChargers }) => {
+            if (newChargers) {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setChargerList(prevList => {
+                    const updatedList = [...prevList];
+                    newChargers.forEach(nc => {
+                        const idx = updatedList.findIndex(c => c.id === nc.id);
+                        if (idx !== -1) {
+                            updatedList[idx] = { ...updatedList[idx], ...nc };
+                        }
+                    });
+                    return updatedList;
+                });
+            }
+        };
+
+        const batchSubscription = DeviceEventEmitter.addListener('charger_sync_batch', handleBatchUpdate);
+
+        const stationId = activeStation.id;
+        const syncSubscription = DeviceEventEmitter.addListener(
+            `station_chargers_updated_${stationId}`,
+            ({ chargers: stationChargers }) => {
+                if (stationChargers) {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setChargerList(prevList => {
+                        const updatedList = [...prevList];
+                        stationChargers.forEach(nc => {
+                            const idx = updatedList.findIndex(c => c.id === nc.id);
+                            if (idx !== -1) {
+                                updatedList[idx] = { ...updatedList[idx], ...nc };
+                            } else {
+                                updatedList.push(nc);
+                            }
+                        });
+                        return updatedList;
+                    });
+                    fetchFreshChargerStatuses();
+                }
+            }
+        );
+
+        return () => {
+            batchSubscription.remove();
+            syncSubscription.remove();
+        };
+    }, [activeStation]);
 
     const handleDirections = () => {
         if (!activeStation) return;
@@ -54,7 +180,6 @@ export default function StationBottomSheet({
     };
 
     const handleHelp = () => {
-        // Placeholder for help/support
         console.log("Help pressed");
     };
 
@@ -68,9 +193,6 @@ export default function StationBottomSheet({
         }
     };
 
-
-
-    // Pan Responder for Drag Gesture
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => true,
@@ -82,18 +204,15 @@ export default function StationBottomSheet({
             },
             onPanResponderRelease: (_, gestureState) => {
                 if (gestureState.dy > 100 || gestureState.vy > 0.5) {
-                    // Prevent double animation conflict
                     isClosing.current = true;
-                    onClose(); // Trigger state change immediately
+                    onClose();
 
-                    // Animate out immediately
                     Animated.timing(translateY, {
                         toValue: SCREEN_HEIGHT,
                         duration: 200,
                         useNativeDriver: true,
                     }).start();
                 } else {
-                    // Snap back to top
                     Animated.spring(translateY, {
                         toValue: 0,
                         bounciness: 1,
@@ -107,7 +226,6 @@ export default function StationBottomSheet({
     useEffect(() => {
         if (visible) {
             isClosing.current = false;
-            // Slide Up - Spring for smoothness
             Animated.parallel([
                 Animated.spring(translateY, {
                     toValue: 0,
@@ -123,10 +241,8 @@ export default function StationBottomSheet({
                 })
             ]).start();
         } else {
-            // Check if we are already closing manually
             if (isClosing.current) {
-                isClosing.current = false; // Reset
-                // Fade out overlay independently as manual animation only handles translateY
+                isClosing.current = false;
                 Animated.timing(overlayOpacity, {
                     toValue: 0,
                     duration: 200,
@@ -135,7 +251,6 @@ export default function StationBottomSheet({
                 return;
             }
 
-            // Slide Down - Standard close
             Animated.parallel([
                 Animated.timing(translateY, {
                     toValue: SCREEN_HEIGHT,
@@ -150,12 +265,16 @@ export default function StationBottomSheet({
                 })
             ]).start();
         }
-
     }, [visible]);
 
-    // ... hooks are called above ...
-
-    const stationChargers = activeStation && chargers ? chargers.filter(c => c.stationId === activeStation.id) : [];
+    const stationChargers = activeStation && chargerList ? chargerList.filter(c => {
+        const sId = c.stationId || c.station_id || (c.station && (c.station.id || c.station));
+        return String(sId) === String(activeStation.id);
+    }) : [];
+    const isStationOffline = stationChargers.length > 0 && stationChargers.every(c => {
+        const s = (c.status || '').toLowerCase();
+        return s === 'offline' || s === 'unavailable' || (!s);
+    });
 
     return (
         <>
@@ -187,7 +306,7 @@ export default function StationBottomSheet({
                         {/* Content */}
                         <ScrollView
                             style={styles.content}
-                            contentContainerStyle={{ paddingBottom: 0 }}
+                            contentContainerStyle={{ paddingBottom: 40 }}
                             showsVerticalScrollIndicator={false}
                         >
                             <View style={styles.stationHeader}>
@@ -198,24 +317,27 @@ export default function StationBottomSheet({
                                     </Text>
 
                                     <View style={[styles.statusRow, { marginBottom: 8 }]}>
-                                        <View style={[
-                                            styles.statusPill,
-                                            {
-                                                backgroundColor: activeStation.status === 'ACTIVE' ? 'rgba(76, 175, 80, 0.2)' : 'rgba(244, 67, 54, 0.2)',
-                                                borderWidth: 0
-                                            }
-                                        ]}>
-                                            <BoltIcon width={16} height={16} fill={activeStation.status === 'ACTIVE' ? Colors.statusGreen : Colors.statusRed} />
-                                            <Text style={[styles.statusText, { color: activeStation.status === 'ACTIVE' ? Colors.statusGreen : Colors.statusRed }]}>
-                                                {activeStation.status === 'ACTIVE' ? 'Operational' : 'Non-Operational'}
-                                            </Text>
-                                        </View>
+                                        {isStationOffline ? (
+                                            <View style={[styles.statusPill, { backgroundColor: '#FFFFFF' }]}>
+                                                <BoltIcon width={16} height={16} fill="#EF5350" />
+                                                <Text style={[styles.statusText, { color: '#EF5350' }]}>
+                                                    Offline
+                                                </Text>
+                                            </View>
+                                        ) : (
+                                            <View style={[styles.statusPill, { backgroundColor: '#FFFFFF' }]}>
+                                                <BoltIcon width={16} height={16} fill={(activeStation.status || '').toUpperCase() === 'ACTIVE' ? '#00B074' : '#EF5350'} />
+                                                <Text style={[styles.statusText, { color: (activeStation.status || '').toUpperCase() === 'ACTIVE' ? '#00B074' : '#EF5350' }]}>
+                                                    {(activeStation.status || '').toUpperCase() === 'ACTIVE' ? 'Operational' : 'Non-Operational'}
+                                                </Text>
+                                            </View>
+                                        )}
                                     </View>
 
                                     <TouchableOpacity
                                         style={styles.ratingRow}
                                         onPress={() => {
-                                            onClose(); // Close sheet before navigating
+                                            onClose();
                                             navigation.navigate('StationReviews', {
                                                 stationId: activeStation.id,
                                                 stationName: activeStation.name
@@ -225,9 +347,8 @@ export default function StationBottomSheet({
                                         <Star fill="#FFD700" color="#FFD700" size={16} />
                                         <Text style={styles.ratingText}>{activeStation.rating ? Number(activeStation.rating).toFixed(1) : '4.5'}</Text>
                                         <Text style={styles.ratingCount}>({activeStation.reviews || activeStation.reviewCount || '0'} Reviews)</Text>
-                                        <ChevronRight size={14} color="#777" />
+                                        <ChevronRight size={14} color="#5A6B7C" />
                                     </TouchableOpacity>
-
                                 </View>
                                 <Image
                                     source={{ uri: activeStation.image_url || 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7' }}
@@ -241,22 +362,22 @@ export default function StationBottomSheet({
                                     showsHorizontalScrollIndicator={false}
                                     contentContainerStyle={{ flexDirection: 'row', gap: 8, alignItems: 'center', paddingHorizontal: 20 }}
                                 >
-                                    <TouchableOpacity style={[styles.actionChip, { backgroundColor: '#FFFFFF' }]} onPress={handleDirections}>
-                                        <NavigationIcon width={20} height={20} fill={Colors.matteBlack} />
-                                        <Text style={[styles.actionText, { color: '#121212', fontWeight: 'bold' }]}>Navigate</Text>
+                                    <TouchableOpacity style={[styles.actionChip, { backgroundColor: '#00B074' }]} onPress={handleDirections}>
+                                        <NavigationIcon width={20} height={20} fill="#FFFFFF" />
+                                        <Text style={[styles.actionText, { color: '#FFFFFF', fontWeight: '900' }]}>Navigate</Text>
                                     </TouchableOpacity>
 
-                                    <TouchableOpacity style={styles.actionChip} onPress={() => setShowEmergency(true)}>
-                                        <Phone size={16} color="#ccc" />
-                                        <Text style={[styles.actionText, { marginLeft: 6 }]}>Support</Text>
+                                    <TouchableOpacity style={[styles.actionChip, { backgroundColor: '#FFFFFF' }]} onPress={() => setShowEmergency(true)}>
+                                        <Phone size={16} color="#5A6B7C" />
+                                        <Text style={[styles.actionText, { marginLeft: 6, color: '#5A6B7C', fontWeight: '800' }]}>Support</Text>
                                     </TouchableOpacity>
 
-                                    <TouchableOpacity style={[styles.actionChip, { paddingHorizontal: 12 }]} onPress={handleHelp}>
-                                        <HelpCircle size={20} color="#aaa" />
+                                    <TouchableOpacity style={[styles.actionChip, { paddingHorizontal: 12, backgroundColor: '#FFFFFF' }]} onPress={handleHelp}>
+                                        <HelpCircle size={20} color="#5A6B7C" />
                                     </TouchableOpacity>
 
-                                    <TouchableOpacity style={[styles.actionChip, { paddingHorizontal: 12 }]} onPress={handleShare}>
-                                        <Share2 size={20} color="#aaa" />
+                                    <TouchableOpacity style={[styles.actionChip, { paddingHorizontal: 12, backgroundColor: '#FFFFFF' }]} onPress={handleShare}>
+                                        <Share2 size={20} color="#5A6B7C" />
                                     </TouchableOpacity>
                                 </ScrollView>
                             </View>
@@ -268,17 +389,17 @@ export default function StationBottomSheet({
                             <View style={styles.chargersList}>
                                 {stationChargers.length > 0 ? (
                                     stationChargers.map((charger) => {
-                                        const isAvail = charger.status === 'Available' || (!charger.occupied && charger.availability);
-                                        const statusText = isAvail ? 'Available' : (charger.status ? charger.status.charAt(0).toUpperCase() + charger.status.slice(1).toLowerCase() : 'Busy');
-                                        const isBusy = statusText === 'Busy';
-                                        const isOffline = statusText === 'Offline';
-
-                                        const pillColor = isAvail ? Colors.statusGreen : (isBusy ? Colors.statusOrange : (isOffline ? '#aaa' : Colors.statusRed));
+                                        const statusLower = (charger.status || '').toLowerCase();
+                                        const isOffline = statusLower === 'offline' || statusLower === 'faulted' || statusLower === 'unavailable' || statusLower === 'disabled' || (!statusLower);
+                                        const isBusy = statusLower === 'busy' || statusLower === 'occupied' || statusLower === 'charging' || statusLower === 'preparing' || statusLower === 'finishing' || statusLower === 'reserved' || statusLower === 'suspendedev' || statusLower === 'suspendedevse';
+                                        const isAvail = !isOffline && !isBusy;
+                                        
+                                        const pillColor = isAvail ? '#00B074' : (isBusy ? '#FF9800' : '#7E8E9F');
 
                                         return (
                                             <TouchableOpacity
                                                 key={charger.id}
-                                                style={[styles.chargerCard, isOffline && { opacity: 0.6 }]}
+                                                style={[styles.chargerCard, isOffline && { opacity: 0.5 }]}
                                                 onPress={() => onSelectCharger(charger)}
                                                 disabled={isOffline}
                                             >
@@ -287,19 +408,11 @@ export default function StationBottomSheet({
 
                                                 {/* Icon */}
                                                 <View style={styles.chargerIconBox}>
-                                                    {isOffline ? (
-                                                        <Image
-                                                            source={getConnectorIcon(charger.connectorType || charger.connector_type)}
-                                                            style={{ width: 28, height: 28, opacity: 0.5, tintColor: '#ccc' }}
-                                                            resizeMode="contain"
-                                                        />
-                                                    ) : (
-                                                        <Image
-                                                            source={getConnectorIcon(charger.connectorType || charger.connector_type)}
-                                                            style={{ width: 40, height: 40, tintColor: '#fff' }}
-                                                            resizeMode="contain"
-                                                        />
-                                                    )}
+                                                    <Image
+                                                        source={getConnectorIcon(charger.connectorType || charger.connector_type)}
+                                                        style={{ width: 36, height: 36, tintColor: '#1A1A1A' }}
+                                                        resizeMode="contain"
+                                                    />
                                                 </View>
 
                                                 {/* Details */}
@@ -318,7 +431,7 @@ export default function StationBottomSheet({
                                                         {(charger.chargerType || '').toString().includes('AC') || (charger.connectorType || '').toString().includes('Type 2') ? 'AC' : 'DC'} Charging
                                                     </Text>
 
-                                                    <Text style={[styles.priceInfo]}>
+                                                    <Text style={styles.priceInfo}>
                                                         Rate: ₹{charger.price_per_kwh || charger.price || '18.00'} / kWh
                                                     </Text>
                                                 </View>
@@ -326,7 +439,7 @@ export default function StationBottomSheet({
                                                 {/* Right Action */}
                                                 <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
                                                     {!isOffline && (
-                                                        <ChevronRight size={20} color="#555" />
+                                                        <ChevronRight size={20} color="#5A6B7C" />
                                                     )}
                                                 </View>
                                             </TouchableOpacity>
@@ -339,11 +452,10 @@ export default function StationBottomSheet({
                                 )}
                             </View>
 
-                            {/* Divider moved here */}
-                            {nearbyCafes.length > 0 && <View style={styles.divider} />}
+                            {(backendCafes.length > 0 || nearbyCafes.length > 0) && <View style={styles.divider} />}
 
-                            {/* Amenities Section - Moved Below Chargers */}
-                            {nearbyCafes.length > 0 && (
+                            {/* Amenities Section */}
+                            {(backendCafes.length > 0 || nearbyCafes.length > 0) && (
                                 <>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
                                         <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Amenities</Text>
@@ -358,7 +470,10 @@ export default function StationBottomSheet({
                                                     styles.filterChip,
                                                     activeFilter === filter && styles.filterChipActive
                                                 ]}
-                                                onPress={() => setActiveFilter(filter)}
+                                                onPress={() => {
+                                                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                                                    setActiveFilter(filter);
+                                                }}
                                             >
                                                 <Text style={[
                                                     styles.filterText,
@@ -372,6 +487,52 @@ export default function StationBottomSheet({
 
                                     <View style={styles.nearbyContainer}>
                                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 116 }}>
+                                            {backendCafes.filter(c => {
+                                                if (activeFilter === 'All') return true;
+                                                const type = (c.category || c.type || '').toLowerCase();
+                                                if (activeFilter === 'Cafes') return type.includes('cafe') || type.includes('coffee');
+                                                if (activeFilter === 'Malls') return type.includes('mall') || type.includes('shopping');
+                                                if (activeFilter === 'Restaurants') return type.includes('restaurant') || type.includes('food') || type.includes('rest stop');
+                                                return true;
+                                            }).map((cafe, index) => {
+                                                const openMapsUrl = cafe.googleMapsUri || cafe.google_maps_uri || (cafe.latitude && cafe.longitude
+                                                    ? Platform.select({
+                                                          ios: `maps:0,0?q=${encodeURIComponent(cafe.name)}@${cafe.latitude},${cafe.longitude}`,
+                                                          android: `geo:0,0?q=${cafe.latitude},${cafe.longitude}(${encodeURIComponent(cafe.name)})`
+                                                      })
+                                                    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cafe.name)}`);
+                                                const cafeType = (cafe.category || cafe.type || 'Cafe');
+                                                const imageUri = cafe.imageUrl || cafe.image_url || cafe.thumb || cafe.photoUrl || cafe.googleMapImageUrl;
+
+                                                return (
+                                                    <TouchableOpacity key={`backend_cafe_${index}`} style={styles.cafeCard} activeOpacity={0.8} onPress={() => Linking.openURL(openMapsUrl)}>
+                                                        {imageUri ? (
+                                                            <Image
+                                                                source={{ uri: imageUri }}
+                                                                style={styles.cafeImage}
+                                                                resizeMode="cover"
+                                                            />
+                                                        ) : (
+                                                            <View style={styles.cafeImagePlaceholder}>
+                                                                {(cafeType.toLowerCase().includes('restaurant') || cafeType.toLowerCase().includes('food')) ? <Utensils size={36} color="#5A6B7C" /> :
+                                                                    (cafeType.toLowerCase().includes('mall') || cafeType.toLowerCase().includes('shopping') ? <ShoppingBag size={36} color="#5A6B7C" /> : <Coffee size={36} color="#5A6B7C" />)}
+                                                            </View>
+                                                        )}
+                                                        <View style={styles.cafeCardContent}>
+                                                            <Text style={styles.cafeName} numberOfLines={1}>{cafe.name}</Text>
+                                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                                                                <Text style={styles.cafeRating}>★ {cafe.rating ?? '—'}</Text>
+                                                                {cafe.isOpen !== undefined && (
+                                                                    <Text style={{ color: cafe.isOpen ? '#00B074' : '#EF5350', fontSize: 11, fontWeight: 'bold' }}>
+                                                                        {cafe.isOpen ? 'Open' : 'Closed'}
+                                                                    </Text>
+                                                                )}
+                                                            </View>
+                                                        </View>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+
                                             {nearbyCafes.filter(c => {
                                                 if (activeFilter === 'All') return true;
                                                 const type = c.type;
@@ -379,21 +540,34 @@ export default function StationBottomSheet({
                                                 if (activeFilter === 'Malls') return type === 'Shopping mall' || type === 'Mall';
                                                 if (activeFilter === 'Restaurants') return type === 'Restaurant' || type === 'Rest stop';
                                                 return true;
-                                            }).map((cafe, index) => (
-                                                <TouchableOpacity key={`cafe_${index}`} style={styles.cafeChip} activeOpacity={0.8} onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${cafe.geometry?.location?.lat},${cafe.geometry?.location?.lng}`)}>
-                                                    <View style={[styles.cafeIconCircle, { backgroundColor: '#3E2723' }]}>
-                                                        {(cafe.type === 'Rest stop' || cafe.type === 'Restaurant') ? <Utensils size={14} color="#D7CCC8" /> :
-                                                            (cafe.type === 'Shopping mall' || cafe.type === 'Mall' ? <ShoppingBag size={14} color="#D7CCC8" /> : <Coffee size={14} color="#D7CCC8" />)}
-                                                    </View>
-                                                    <View>
-                                                        <Text style={styles.cafeName} numberOfLines={1}>{cafe.name}</Text>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                            <Text style={styles.cafeRating}>★ {cafe.rating}</Text>
-                                                            <Text style={{ color: '#aaa', fontSize: 11, marginLeft: 4 }}>• {cafe.vicinity || 'Nearby'}</Text>
+                                            }).map((cafe, index) => {
+                                                const imageUri = cafe.photoUrl || cafe.imageUrl || cafe.image_url || cafe.thumb;
+                                                return (
+                                                    <TouchableOpacity key={`cafe_${index}`} style={styles.cafeCard} activeOpacity={0.8} onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${cafe.geometry?.location?.lat},${cafe.geometry?.location?.lng}`)}>
+                                                        {imageUri ? (
+                                                            <Image
+                                                                source={{ uri: imageUri }}
+                                                                style={styles.cafeImage}
+                                                                resizeMode="cover"
+                                                            />
+                                                        ) : (
+                                                            <View style={styles.cafeImagePlaceholder}>
+                                                                {(cafe.type === 'Rest stop' || cafe.type === 'Restaurant') ? <Utensils size={36} color="#5A6B7C" /> :
+                                                                    (cafe.type === 'Shopping mall' || cafe.type === 'Mall' ? <ShoppingBag size={36} color="#5A6B7C" /> : <Coffee size={36} color="#5A6B7C" />)}
+                                                            </View>
+                                                        )}
+                                                        <View style={styles.cafeCardContent}>
+                                                            <Text style={styles.cafeName} numberOfLines={1}>{cafe.name}</Text>
+                                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                                                                <Text style={styles.cafeRating}>★ {cafe.rating}</Text>
+                                                                <Text style={{ color: cafe.isOpen ? '#00B074' : '#EF5350', fontSize: 11, fontWeight: 'bold' }}>
+                                                                    {cafe.isOpen ? 'Open' : 'Closed'}
+                                                                </Text>
+                                                            </View>
                                                         </View>
-                                                    </View>
-                                                </TouchableOpacity>
-                                            ))}
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
                                         </ScrollView>
                                     </View>
                                 </>
@@ -414,23 +588,23 @@ export default function StationBottomSheet({
 const styles = StyleSheet.create({
     overlay: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: '#000',
-        zIndex: 1000, // Increased zIndex slightly to be safe
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        zIndex: 1000,
     },
     bottomSheet: {
         position: 'absolute',
         left: 0,
         right: 0,
         bottom: 0,
-        maxHeight: '90%', // Limit max height, allowing auto-adjust below this
-        backgroundColor: '#1E1E1E',
+        maxHeight: '90%',
+        backgroundColor: '#E2E7EC',
         borderTopLeftRadius: 30,
         borderTopRightRadius: 30,
-        zIndex: 1001, // Stays above overlay
+        zIndex: 1001,
         elevation: 20,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -5 },
-        shadowOpacity: 0.6,
+        shadowOpacity: 0.15,
         shadowRadius: 10,
     },
     header: {
@@ -442,13 +616,12 @@ const styles = StyleSheet.create({
     dragHandle: {
         width: 50,
         height: 5,
-        backgroundColor: '#444',
+        backgroundColor: '#BFC7CE',
         borderRadius: 3,
         position: 'absolute',
         top: 10,
     },
     content: {
-        // Removed flex: 1 to allow auto height
         flexGrow: 0,
         paddingHorizontal: 20,
         paddingTop: 10,
@@ -464,17 +637,18 @@ const styles = StyleSheet.create({
         paddingRight: 10,
     },
     stationName: {
-        color: '#fff',
+        color: '#1A1A1A',
         fontSize: 22,
-        fontWeight: 'bold',
+        fontWeight: '900',
         marginBottom: 5,
         flexWrap: 'wrap',
     },
     stationAddress: {
-        color: '#aaa',
+        color: '#5A6B7C',
         fontSize: 13,
         marginBottom: 8,
         lineHeight: 18,
+        fontWeight: '600',
     },
     ratingRow: {
         flexDirection: 'row',
@@ -482,21 +656,20 @@ const styles = StyleSheet.create({
         gap: 5,
     },
     ratingText: {
-        color: '#fff',
-        fontWeight: 'bold',
+        color: '#1A1A1A',
+        fontWeight: '900',
         fontSize: 14,
     },
     ratingCount: {
-        color: '#777',
+        color: '#5A6B7C',
         fontSize: 12,
+        fontWeight: '600',
     },
     stationImage: {
         width: 110,
         height: 110,
         borderRadius: 18,
-        borderWidth: 2,
-        borderColor: Colors.cardBg,
-        backgroundColor: '#333',
+        backgroundColor: '#FFFFFF',
     },
     statusRow: {
         flexDirection: 'row',
@@ -506,30 +679,25 @@ const styles = StyleSheet.create({
     statusPill: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#333',
         paddingHorizontal: 10,
         paddingVertical: 5,
-        borderRadius: 8,
+        borderRadius: 12,
         gap: 5,
     },
     statusText: {
         fontSize: 12,
-        fontWeight: 'bold',
-    },
-    metaText: {
-        color: '#aaa',
-        fontSize: 12,
+        fontWeight: '900',
     },
     divider: {
         height: 1,
-        backgroundColor: '#333',
+        backgroundColor: '#BFC7CE',
         marginTop: 6,
         marginBottom: 16,
     },
     sectionTitle: {
-        color: '#fff',
+        color: '#1A1A1A',
         fontSize: 18,
-        fontWeight: 'bold',
+        fontWeight: '900',
         marginBottom: 15,
     },
     chargersList: {
@@ -538,17 +706,16 @@ const styles = StyleSheet.create({
     chargerCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#252525', // Consider Colors.cardBg if available
-        borderRadius: 20,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 28,
         paddingVertical: 16,
         paddingHorizontal: 16,
         marginBottom: 12,
-        // Removed border for cleaner look
     },
     chargerIconBox: {
         width: 48,
         height: 48,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: '#E2E7EC',
         borderRadius: 14,
         justifyContent: 'center',
         alignItems: 'center',
@@ -557,100 +724,46 @@ const styles = StyleSheet.create({
     chargerInfo: {
         flex: 1,
     },
-    chargerTitle: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: 'bold',
-        marginBottom: 2,
-    },
-    idStatusRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 4,
-    },
-    chargerIdSmall: {
-        color: '#aaa',
-        fontSize: 12,
-        fontWeight: '500',
-    },
-    bulletPoint: {
-        color: '#777',
-        marginHorizontal: 6,
-        fontSize: 12,
-    },
-    availabilityText: {
-        fontSize: 12,
-        fontWeight: 'bold',
-    },
-    connectorInfo: {
-        color: '#aaa',
-        fontSize: 13,
-        marginBottom: 2,
-    },
     priceInfo: {
-        color: '#888',
+        color: '#5A6B7C',
         fontSize: 12,
-    },
-    arrowBox: {
-        backgroundColor: '#33333309',
-        borderRadius: 20,
-        padding: 6,
-        marginTop: 6
+        fontWeight: '700',
     },
     primaryInfoText: {
         fontSize: 16,
-        fontWeight: 'bold',
-        color: '#fff',
+        fontWeight: '900',
+        color: '#1A1A1A',
     },
     separatorText: {
         fontSize: 14,
-        color: '#666',
+        color: '#BFC7CE',
         marginHorizontal: 4,
     },
     connectorText: {
         fontSize: 14,
-        color: '#ccc',
-        fontWeight: '500',
+        color: '#5A6B7C',
+        fontWeight: '700',
     },
     emptyState: {
         padding: 20,
         alignItems: 'center',
     },
     emptyText: {
-        color: '#777',
+        color: '#5A6B7C',
         fontStyle: 'italic',
-    },
-    actionRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        marginTop: 12,
+        fontWeight: '600',
     },
     actionChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#333',
-        paddingVertical: 10,
-        paddingHorizontal: 18,
-        borderRadius: 12,
-        gap: 6
+        borderRadius: 30,
+        height: 44,
+        paddingHorizontal: 20,
+        gap: 6,
     },
     actionText: {
-        color: '#ccc',
-        fontSize: 12,
-        fontWeight: '500'
+        fontSize: 14,
     },
-    statusPillSmall: {
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 8,
-        alignSelf: 'flex-start',
-    },
-    statusTextSmall: {
-        fontSize: 11,
-        fontWeight: 'bold',
-    },
-    // Nearby Cafes Styles
     nearbyContainer: {
         marginBottom: 30,
     },
@@ -658,52 +771,55 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 20,
-        backgroundColor: '#333',
+        backgroundColor: '#FFFFFF',
         borderWidth: 1,
-        borderColor: '#444',
+        borderColor: '#BFC7CE',
     },
     filterChipActive: {
-        backgroundColor: Colors.white, // or primary color
-        borderColor: Colors.white,
+        backgroundColor: '#00B074',
+        borderColor: '#00B074',
     },
     filterText: {
-        color: '#ccc',
+        color: '#5A6B7C',
         fontSize: 13,
-        fontWeight: '500',
+        fontWeight: '700',
     },
     filterTextActive: {
-        color: Colors.matteBlack,
-        fontWeight: 'bold',
+        color: '#FFFFFF',
+        fontWeight: '900',
     },
-    cafeChip: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#2A2A2A',
+    cafeCard: {
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        marginRight: 10,
-        borderWidth: 1,
-        borderColor: '#333',
-        minWidth: 140,
+        marginRight: 12,
+        width: 140,
+        overflow: 'hidden',
     },
-    cafeIconCircle: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+    cafeImage: {
+        width: 140,
+        height: 110,
+        resizeMode: 'cover',
+    },
+    cafeImagePlaceholder: {
+        width: 140,
+        height: 110,
+        backgroundColor: '#E2E7EC',
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 10,
+    },
+    cafeCardContent: {
+        padding: 12,
+        paddingTop: 10,
     },
     cafeName: {
-        color: '#fff',
-        fontSize: 13,
-        fontWeight: '600',
+        color: '#1A1A1A',
+        fontSize: 14,
+        fontWeight: '900',
         marginBottom: 2,
     },
     cafeRating: {
-        color: '#FFD700', // Gold
-        fontSize: 11,
-        fontWeight: 'bold',
-    }
+        color: '#FFD700',
+        fontSize: 12,
+        fontWeight: '800',
+    },
 });

@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, StatusBar, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, StatusBar, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Car, Battery, Zap, Save, CheckCircle, Trash2 } from 'lucide-react-native';
-import { Colors } from '../styles/GlobalStyles';
+import { ChevronLeft, Car, Battery, Save, Trash2 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAlert } from '../context/AlertContext';
+import { useTheme } from '../context/ThemeContext';
 
 const VEHICLE_STORAGE_KEY = '@user_vehicle_details';
 
 export default function VehicleDetailsScreen({ navigation }) {
+    const { theme, isDark } = useTheme();
+    const { showAlert } = useAlert();
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
 
@@ -16,7 +19,7 @@ export default function VehicleDetailsScreen({ navigation }) {
     const [isAddingNew, setIsAddingNew] = useState(false);
 
     // Form State
-    const [vehicleType, setVehicleType] = useState('4W'); // 2W, 3W, 4W
+    const [vehicleType, setVehicleType] = useState('4W'); 
     const [make, setMake] = useState('');
     const [model, setModel] = useState('');
     const [registrationNumber, setRegistrationNumber] = useState('');
@@ -36,7 +39,6 @@ export default function VehicleDetailsScreen({ navigation }) {
                 if (Array.isArray(data)) {
                     setVehicles(data);
                 } else if (data && data.make) {
-                    // Migrate single object to array
                     const initialVehicle = { ...data, id: Date.now().toString() };
                     setVehicles([initialVehicle]);
                     await AsyncStorage.setItem(VEHICLE_STORAGE_KEY, JSON.stringify([initialVehicle]));
@@ -61,7 +63,7 @@ export default function VehicleDetailsScreen({ navigation }) {
 
     const handleSave = async () => {
         if (!make || !model || !registrationNumber) {
-            Alert.alert("Missing Information", "Please fill in Make, Model and Registration Number.");
+            showAlert("Missing Information", "Please fill in Make, Model and Registration Number.");
             return;
         }
 
@@ -82,22 +84,21 @@ export default function VehicleDetailsScreen({ navigation }) {
             await AsyncStorage.setItem(VEHICLE_STORAGE_KEY, JSON.stringify(updatedList));
             setVehicles(updatedList);
 
-            // Simulate API delay
             setTimeout(() => {
                 setSaving(false);
-                Alert.alert("Success", "Vehicle added successfully!");
+                showAlert("Success", "Vehicle added successfully!");
                 resetForm();
             }, 500);
 
         } catch (e) {
             console.error("Failed to save", e);
-            Alert.alert("Error", "Could not save details.");
+            showAlert("Error", "Could not save details.");
             setSaving(false);
         }
     };
 
     const handleDelete = (id) => {
-        Alert.alert(
+        showAlert(
             "Delete Vehicle",
             "Are you sure you want to remove this vehicle?",
             [
@@ -112,7 +113,7 @@ export default function VehicleDetailsScreen({ navigation }) {
                             await AsyncStorage.setItem(VEHICLE_STORAGE_KEY, JSON.stringify(updatedList));
                         } catch (e) {
                             console.error("Failed to delete", e);
-                            Alert.alert("Error", "Could not delete vehicle.");
+                            showAlert("Error", "Could not delete vehicle.");
                         }
                     }
                 }
@@ -122,10 +123,18 @@ export default function VehicleDetailsScreen({ navigation }) {
 
     const SelectableChip = ({ label, value, selectedValue, onSelect }) => (
         <TouchableOpacity
-            style={[styles.chip, selectedValue === value && styles.chipActive]}
+            style={[
+                styles.chip, 
+                { backgroundColor: theme.white },
+                selectedValue === value && [styles.chipActive, { backgroundColor: theme.textPrimary }]
+            ]}
             onPress={() => onSelect(value)}
         >
-            <Text style={[styles.chipText, selectedValue === value && styles.chipTextActive]}>{label}</Text>
+            <Text style={[
+                styles.chipText, 
+                { color: theme.textSecondary },
+                selectedValue === value && [styles.chipTextActive, { color: theme.background }]
+            ]}>{label}</Text>
         </TouchableOpacity>
     );
 
@@ -133,20 +142,20 @@ export default function VehicleDetailsScreen({ navigation }) {
         <View>
             {vehicles.length === 0 ? (
                 <View style={styles.emptyState}>
-                    <Car size={48} color="#333" />
-                    <Text style={styles.emptyText}>No vehicles added yet</Text>
-                    <Text style={styles.emptySubText}>Add your EV details to get started</Text>
+                    <Car size={48} color={theme.textSecondary} />
+                    <Text style={[styles.emptyText, { color: theme.textPrimary }]}>No vehicles added yet</Text>
+                    <Text style={[styles.emptySubText, { color: theme.textSecondary }]}>Add your EV details to get started</Text>
                 </View>
             ) : (
                 vehicles.map((item) => (
-                    <View key={item.id} style={styles.vehicleCard}>
-                        <View style={styles.vehicleIconContainer}>
-                            <Car size={24} color={Colors.white} />
+                    <View key={item.id} style={[styles.vehicleCard, { backgroundColor: theme.cardBg }]}>
+                        <View style={[styles.vehicleIconContainer, { backgroundColor: theme.white }]}>
+                            <Car size={22} color="#00B074" />
                         </View>
                         <View style={styles.vehicleInfo}>
-                            <Text style={styles.vehicleName}>{item.make} {item.model}</Text>
-                            <Text style={styles.vehicleReg}>{item.registrationNumber}</Text>
-                            <Text style={styles.vehicleSpecs}>
+                            <Text style={[styles.vehicleName, { color: theme.textPrimary }]}>{item.make} {item.model}</Text>
+                            <Text style={[styles.vehicleReg, { color: theme.textSecondary }]}>{item.registrationNumber}</Text>
+                            <Text style={[styles.vehicleSpecs, { color: theme.textSecondary }]}>
                                 {item.vehicleType} • {item.connectorType}
                                 {item.batteryCapacity ? ` • ${item.batteryCapacity} kWh` : ''}
                             </Text>
@@ -155,21 +164,21 @@ export default function VehicleDetailsScreen({ navigation }) {
                             style={styles.deleteBtn}
                             onPress={() => handleDelete(item.id)}
                         >
-                            <Trash2 size={20} color="#FF5252" />
+                            <Trash2 size={20} color="#EF5350" />
                         </TouchableOpacity>
                     </View>
                 ))
             )}
 
-            <TouchableOpacity style={styles.addBtn} onPress={() => setIsAddingNew(true)}>
-                <Text style={styles.addBtnText}>+ Add New Vehicle</Text>
+            <TouchableOpacity style={[styles.addBtn, { backgroundColor: theme.cardBg }]} onPress={() => setIsAddingNew(true)}>
+                <Text style={[styles.addBtnText, { color: theme.textPrimary }]}>+ Add New Vehicle</Text>
             </TouchableOpacity>
         </View>
     );
 
     const renderForm = () => (
         <View>
-            <Text style={styles.sectionTitle}>Vehicle Type</Text>
+            <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Vehicle Type</Text>
             <View style={styles.row}>
                 <SelectableChip label="2 Wheeler" value="2W" selectedValue={vehicleType} onSelect={setVehicleType} />
                 <SelectableChip label="3 Wheeler" value="3W" selectedValue={vehicleType} onSelect={setVehicleType} />
@@ -177,13 +186,13 @@ export default function VehicleDetailsScreen({ navigation }) {
             </View>
 
             <View style={styles.inputGroup}>
-                <Text style={styles.label}>Make (Brand)</Text>
-                <View style={styles.inputWrapper}>
-                    <Car size={20} color="#666" style={styles.inputIcon} />
+                <Text style={[styles.label, { color: theme.textSecondary }]}>Make (Brand)</Text>
+                <View style={[styles.inputWrapper, { backgroundColor: theme.white }]}>
+                    <Car size={18} color={theme.textSecondary} style={styles.inputIcon} />
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, { color: theme.textPrimary }]}
                         placeholder="e.g. Tata, Tesla, MG"
-                        placeholderTextColor="#555"
+                        placeholderTextColor={theme.placeholder}
                         value={make}
                         onChangeText={setMake}
                     />
@@ -191,13 +200,13 @@ export default function VehicleDetailsScreen({ navigation }) {
             </View>
 
             <View style={styles.inputGroup}>
-                <Text style={styles.label}>Model</Text>
-                <View style={styles.inputWrapper}>
-                    <Car size={20} color="#666" style={styles.inputIcon} />
+                <Text style={[styles.label, { color: theme.textSecondary }]}>Model</Text>
+                <View style={[styles.inputWrapper, { backgroundColor: theme.white }]}>
+                    <Car size={18} color={theme.textSecondary} style={styles.inputIcon} />
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, { color: theme.textPrimary }]}
                         placeholder="e.g. Nexon EV, Model 3"
-                        placeholderTextColor="#555"
+                        placeholderTextColor={theme.placeholder}
                         value={model}
                         onChangeText={setModel}
                     />
@@ -205,13 +214,13 @@ export default function VehicleDetailsScreen({ navigation }) {
             </View>
 
             <View style={styles.inputGroup}>
-                <Text style={styles.label}>Registration Number</Text>
-                <View style={styles.inputWrapper}>
-                    <Text style={[styles.inputIcon, { color: '#666', fontWeight: 'bold' }]}>#</Text>
+                <Text style={[styles.label, { color: theme.textSecondary }]}>Registration Number</Text>
+                <View style={[styles.inputWrapper, { backgroundColor: theme.white }]}>
+                    <Text style={[styles.inputIcon, { color: theme.textSecondary, fontWeight: '900', fontSize: 16 }]}>#</Text>
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, { color: theme.textPrimary }]}
                         placeholder="e.g. MH 12 AB 1234"
-                        placeholderTextColor="#555"
+                        placeholderTextColor={theme.placeholder}
                         value={registrationNumber}
                         onChangeText={setRegistrationNumber}
                         autoCapitalize="characters"
@@ -219,16 +228,16 @@ export default function VehicleDetailsScreen({ navigation }) {
                 </View>
             </View>
 
-            <Text style={styles.sectionTitle}>Charging Specs</Text>
+            <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Charging Specs</Text>
 
             <View style={styles.inputGroup}>
-                <Text style={styles.label}>Battery Capacity (kWh) - Optional</Text>
-                <View style={styles.inputWrapper}>
-                    <Battery size={20} color="#666" style={styles.inputIcon} />
+                <Text style={[styles.label, { color: theme.textSecondary }]}>Battery Capacity (kWh) - Optional</Text>
+                <View style={[styles.inputWrapper, { backgroundColor: theme.white }]}>
+                    <Battery size={18} color={theme.textSecondary} style={styles.inputIcon} />
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, { color: theme.textPrimary }]}
                         placeholder="e.g. 40.5"
-                        placeholderTextColor="#555"
+                        placeholderTextColor={theme.placeholder}
                         value={batteryCapacity}
                         onChangeText={setBatteryCapacity}
                         keyboardType="numeric"
@@ -236,22 +245,22 @@ export default function VehicleDetailsScreen({ navigation }) {
                 </View>
             </View>
 
-            <Text style={styles.label}>Connector Type</Text>
+            <Text style={[styles.label, { color: theme.textSecondary }]}>Connector Type</Text>
             <View style={[styles.row, { flexWrap: 'wrap' }]}>
                 {['CCS 2', 'Type 2', 'CHAdeMO', 'GB/T'].map(type => (
                     <SelectableChip key={type} label={type} value={type} selectedValue={connectorType} onSelect={setConnectorType} />
                 ))}
             </View>
 
-            <View style={{ height: 40 }} />
+            <View style={{ height: 32 }} />
 
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.white }]} onPress={handleSave} disabled={saving}>
                 {saving ? (
-                    <ActivityIndicator color="#000" />
+                    <ActivityIndicator color={theme.textPrimary} />
                 ) : (
                     <>
-                        <Save size={20} color="#000" style={{ marginRight: 8 }} />
-                        <Text style={styles.saveBtnText}>Save Vehicle</Text>
+                        <Save size={18} color={theme.textPrimary} style={{ marginRight: 8 }} />
+                        <Text style={[styles.saveBtnText, { color: theme.textPrimary }]}>Save Vehicle</Text>
                     </>
                 )}
             </TouchableOpacity>
@@ -263,12 +272,12 @@ export default function VehicleDetailsScreen({ navigation }) {
     );
 
     return (
-        <View style={styles.container}>
-            <StatusBar barStyle="light-content" backgroundColor="#121212" />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+            <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
 
             <View style={styles.header}>
                 <TouchableOpacity
-                    style={styles.backBtn}
+                    style={[styles.backBtn, { backgroundColor: theme.cardBg }]}
                     onPress={() => {
                         if (isAddingNew && vehicles.length > 0) {
                             setIsAddingNew(false);
@@ -277,153 +286,132 @@ export default function VehicleDetailsScreen({ navigation }) {
                         }
                     }}
                 >
-                    <ChevronLeft size={24} color="#fff" />
+                    <ChevronLeft size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>{isAddingNew ? 'Add Vehicle' : 'My Vehicles'}</Text>
+                <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>{isAddingNew ? 'Add Vehicle' : 'My Vehicles'}</Text>
                 <View style={{ width: 40 }} />
             </View>
 
-            <ScrollView contentContainerStyle={styles.content}>
+            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                 {loading ? (
-                    <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 50 }} />
+                    <ActivityIndicator size="large" color="#00B074" style={{ marginTop: 50 }} />
                 ) : isAddingNew || vehicles.length === 0 ? renderForm() : renderVehicleList()}
             </ScrollView>
-        </View>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.matteBlack,
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 20,
-        paddingTop: 50,
-        paddingBottom: 20,
-        backgroundColor: Colors.matteBlack,
+        paddingVertical: 15,
     },
     backBtn: {
         width: 40,
         height: 40,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        borderRadius: 12,
+        borderRadius: 20,
     },
     headerTitle: {
-        color: '#fff',
-        fontSize: 18,
-        fontWeight: 'bold',
+        fontSize: 22,
+        fontWeight: '900',
+        textAlign: 'center',
+        flex: 1,
     },
     content: {
-        padding: 24,
-        paddingBottom: 100
+        padding: 20,
+        paddingBottom: 60
     },
     sectionTitle: {
-        color: '#fff',
         fontSize: 16,
-        fontWeight: 'bold',
+        fontWeight: '900',
         marginTop: 10,
         marginBottom: 15,
     },
     row: {
         flexDirection: 'row',
         gap: 10,
-        marginBottom: 24,
+        marginBottom: 20,
     },
     chip: {
         paddingVertical: 10,
         paddingHorizontal: 16,
         borderRadius: 20,
-        backgroundColor: '#1E1E1E',
-        borderWidth: 1,
-        borderColor: '#333',
     },
     chipActive: {
-        backgroundColor: Colors.white,
-        borderColor: Colors.white,
     },
     chipText: {
-        color: '#888',
-        fontSize: 14,
-        fontWeight: '500',
+        fontSize: 13,
+        fontWeight: '700',
     },
     chipTextActive: {
-        color: '#000',
-        fontWeight: 'bold',
+        fontWeight: '900',
     },
     inputGroup: {
-        marginBottom: 20,
+        marginBottom: 16,
     },
     label: {
-        color: '#aaa',
-        fontSize: 14,
+        fontSize: 13,
+        fontWeight: '600',
         marginBottom: 8,
     },
     inputWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#1E1E1E',
-        borderRadius: 12,
-        paddingHorizontal: 15,
-        height: 50,
-        borderWidth: 1,
-        borderColor: '#333',
+        borderRadius: 28,
+        paddingHorizontal: 16,
+        height: 56,
     },
     inputIcon: {
         marginRight: 10,
     },
     input: {
         flex: 1,
-        color: '#fff',
-        fontSize: 16,
+        fontSize: 14,
+        fontWeight: '800',
     },
     saveBtn: {
-        backgroundColor: Colors.primaryContainer || '#00E676', // Fallback
         height: 56,
-        borderRadius: 16,
+        borderRadius: 28,
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
         marginTop: 20,
     },
     saveBtnText: {
-        color: '#000',
-        fontSize: 16,
-        fontWeight: 'bold',
+        fontSize: 15,
+        fontWeight: '900',
     },
     cancelBtn: {
         height: 56,
-        borderRadius: 16,
+        borderRadius: 28,
         justifyContent: 'center',
         alignItems: 'center',
         marginTop: 10,
     },
     cancelBtnText: {
-        color: '#666',
-        fontSize: 16,
-        fontWeight: '600'
+        color: '#EF5350',
+        fontSize: 15,
+        fontWeight: '900'
     },
-    // List Styles
     vehicleCard: {
-        backgroundColor: '#1E1E1E',
-        borderRadius: 16,
+        borderRadius: 28,
         padding: 16,
         flexDirection: 'row',
         alignItems: 'center',
         marginBottom: 16,
-        borderWidth: 1,
-        borderColor: '#333'
     },
     vehicleIconContainer: {
         width: 48,
         height: 48,
-        borderRadius: 12,
-        backgroundColor: '#333',
+        borderRadius: 24,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 16
@@ -432,55 +420,45 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     vehicleName: {
-        color: '#fff',
         fontSize: 16,
-        fontWeight: 'bold',
+        fontWeight: '900',
         marginBottom: 4
     },
     vehicleReg: {
-        color: '#ccc',
-        fontSize: 14,
-        fontWeight: '600',
+        fontSize: 13,
+        fontWeight: '700',
         marginBottom: 4
     },
     vehicleSpecs: {
-        color: '#888',
-        fontSize: 12
+        fontSize: 12,
+        fontWeight: '500'
     },
     deleteBtn: {
         padding: 10,
     },
     addBtn: {
-        backgroundColor: 'rgba(255,255,255,0.1)',
         height: 56,
-        borderRadius: 16,
+        borderRadius: 28,
         justifyContent: 'center',
         alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#333',
-        borderStyle: 'dashed',
         marginTop: 10
     },
     addBtnText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '600'
+        fontSize: 15,
+        fontWeight: '900'
     },
     emptyState: {
         alignItems: 'center',
         justifyContent: 'center',
         padding: 40,
-        opacity: 0.5
     },
     emptyText: {
-        color: '#fff',
         fontSize: 18,
-        fontWeight: 'bold',
+        fontWeight: '900',
         marginTop: 16
     },
     emptySubText: {
-        color: '#888',
-        fontSize: 14,
+        fontSize: 13,
         marginTop: 8
     }
 });
